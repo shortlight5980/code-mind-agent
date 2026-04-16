@@ -63,10 +63,24 @@ def summarize_context(question: str, raw_context: str, summarizer_llm: ChatTongy
         总结后的精炼内容
     """
     prompt = SUMMARIZER_PROMPT_TEMPLATE.format(input=question, context=raw_context)
+
+    # Debug: 输出总结模块的提示词
+    logger.debug("=" * 80)
+    logger.debug("📝 总结模块提示词:")
+    logger.debug(prompt)
+    logger.debug("=" * 80)
+
+    logger.info("正在调用总结模型...")
     response = summarizer_llm.invoke(prompt)
     summary = response.content if hasattr(response, 'content') else str(response)
 
-    logger.debug("Context summarization completed")
+    # Debug: 输出总结模型的返回结果
+    logger.debug("=" * 80)
+    logger.debug("🤖 总结模型返回结果:")
+    logger.debug(summary)
+    logger.debug("=" * 80)
+
+    logger.debug("上下文总结完成")
     return summary
 
 

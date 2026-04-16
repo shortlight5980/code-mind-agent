@@ -19,3 +19,27 @@ summarizer:
 
 splitting:
   max_class_length: 3000  # Classes longer than this will be split
+
+agent:
+  enabled: true
+  model: "qwen-max"
+  temperature: 0.1
+  allowed_dirs:
+    - "."
+  blocked_files:
+    - ".env"
+    - "*.key"
+    - "*.pem"
+    - "*.p12"
+    - "id_rsa"
+  allowed_commands:
+    - "ls"
+    - "cat"
+    - "grep"
+    - "git"
+    - "find"
+    - "head"
+    - "tail"
+    - "wc"
+  command_timeout: 5
+  max_search_results: 50

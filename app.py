@@ -10,6 +10,7 @@ from langchain_core.prompts import PromptTemplate
 from utils.logger import get_logger
 from utils.config import Config
 from utils.summarizer import build_context, summarize_context, create_summarizer
+from agent.agent import create_codemind_agent, run_agent_with_summary
 
 logger = get_logger("app")
 
@@ -54,6 +55,7 @@ def init_services():
     llm_temperature = Config.get("llm.temperature", 0.1)
     summarizer_model = Config.get("summarizer.model", "qwen-max")
     summarizer_temperature = Config.get("summarizer.temperature", 0.1)
+    agent_enabled = Config.get("agent.enabled", True)
 
     logger.info(f"Loading vector database: {persist_dir}")
 
@@ -85,6 +87,21 @@ def init_services():
     services["summarizer_llm"] = summarizer_llm
     services["retrieval_k"] = retrieval_k
 
+    # Initialize Agent if enabled
+    if agent_enabled:
+        logger.info("Initializing CodeMind Agent...")
+        try:
+            agent = create_codemind_agent()
+            services["agent"] = agent
+            services["agent_enabled"] = True
+            logger.info("CodeMind Agent initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Agent: {e}")
+            services["agent_enabled"] = False
+    else:
+        services["agent_enabled"] = False
+        logger.info("Agent is disabled in config")
+
     logger.info("Services initialized successfully")
 
 
@@ -106,72 +123,126 @@ app = FastAPI(title="CodeMind Agent API", lifespan=lifespan)
 
 @app.post("/chat")
 async def chat(query: Query):
-    """Q&A endpoint."""
+    """Q&A endpoint with Agent support."""
     vectordb = services.get("vectordb")
     llm = services.get("llm")
     summarizer_llm = services.get("summarizer_llm")
     retrieval_k = services.get("retrieval_k", 7)
+    agent_enabled = services.get("agent_enabled", False)
+    agent = services.get("agent")
 
     if vectordb is None or llm is None or summarizer_llm is None:
         return {"answer": "Service not initialized, please check if vector database exists"}
 
     logger.info(f"Received question: {query.question}")
+    logger.info(f"Agent enabled: {agent_enabled}")
 
-    # 1. Retrieve relevant documents (10 docs)
+    # 1. Retrieve relevant documents
+    logger.info(f"开始检索向量库，检索数量: {retrieval_k}")
     docs = vectordb.similarity_search(query.question, k=retrieval_k)
 
-    # 2. Build raw context from retrieved docs (using summarizer module)
-    raw_context = build_context(docs)
-
-    # Debug: Log full raw context
+    # Debug: 输出向量库检索完整结果
     logger.debug("=" * 80)
-    logger.debug("📚 Full reference materials (7 docs):")
-    logger.debug(raw_context)
-    logger.debug("=" * 80)
-
-    # 3. Summarize the raw context (using summarizer module)
-    logger.info("Summarizing retrieved documents...")
-    summarized_context = summarize_context(query.question, raw_context, summarizer_llm)
-
-    # Debug: Log summarized context
-    logger.debug("=" * 80)
-    logger.debug("📝 Summarized context:")
-    logger.debug(summarized_context)
-    logger.debug("=" * 80)
-
-    # 4. Build final prompt with summarized context
-    prompt = PROMPT_TEMPLATE.format(context=summarized_context, question=query.question)
-
-    # 5. Call main LLM
-    response = llm.invoke(prompt)
-    answer = response.content if hasattr(response, 'content') else str(response)
-
-    # Debug: Log model response
-    logger.debug("=" * 80)
-    logger.debug("🤖 Final model response:")
-    logger.debug(answer)
-    logger.debug("=" * 80)
-
-    # Log sources (INFO level)
-    logger.info("=" * 60)
-    logger.info("📎 References (7 docs):")
+    logger.debug("📚 向量库检索完整结果:")
     for i, doc in enumerate(docs):
         src = doc.metadata.get("source", "unknown")
-        snippet = doc.page_content[:150].replace("\n", " ")
-        logger.info(f"  [{i+1}] {src}")
-        logger.info(f"       Snippet: {snippet}...")
-    logger.info("=" * 60)
+        logger.debug(f"  [{i+1}] 来源: {src}")
+        logger.debug(f"  内容:\n{doc.page_content}")
+        logger.debug("-" * 60)
+    logger.debug("=" * 80)
 
-    return {
-        "answer": answer,
-        "sources": [
-            {
-                "source": doc.metadata.get("source", "unknown"),
-                "content": doc.page_content
-            }
-            for doc in docs
-        ]
-    }
+    # 2. Check if Agent should be used
+    if agent_enabled and agent is not None:
+        logger.info("Using Agent mode...")
+        result = run_agent_with_summary(
+            question=query.question,
+            agent=agent,
+            raw_docs=docs,
+            summarizer_llm=summarizer_llm
+        )
+
+        # Log sources (INFO level)
+        logger.info("=" * 60)
+        logger.info("📎 References (Agent mode):")
+        for i, doc in enumerate(docs):
+            src = doc.metadata.get("source", "unknown")
+            snippet = doc.page_content[:150].replace("\n", " ")
+            logger.info(f"  [{i+1}] {src}")
+            logger.info(f"       Snippet: {snippet}...")
+        logger.info("=" * 60)
+
+        return {
+            "answer": result.get("answer", ""),
+            "sources": result.get("sources", []),
+            "agent_mode": True,
+            "summarized_context": result.get("summarized_context", ""),
+            "error": result.get("error")
+        }
+    else:
+        # Fallback to original mode (non-Agent)
+        logger.info("Using original mode (Agent disabled)...")
+
+        # 2. Build raw context from retrieved docs (using summarizer module)
+        raw_context = build_context(docs)
+
+        # Debug: Log full raw context
+        logger.debug("=" * 80)
+        logger.debug("📚 完整参考材料 (raw_context):")
+        logger.debug(raw_context)
+        logger.debug("=" * 80)
+
+        # 3. Summarize the raw context (using summarizer module)
+        logger.info("Summarizing retrieved documents...")
+        summarized_context = summarize_context(query.question, raw_context, summarizer_llm)
+
+        # Debug: Log summarized context
+        logger.debug("=" * 80)
+        logger.debug("📝 总结后的上下文 (summarized_context):")
+        logger.debug(summarized_context)
+        logger.debug("=" * 80)
+
+        # 4. Build final prompt with summarized context
+        prompt = PROMPT_TEMPLATE.format(context=summarized_context, question=query.question)
+
+        # Debug: 输出最终提示词
+        logger.debug("=" * 80)
+        logger.debug("💬 发送给主模型的最终提示词:")
+        logger.debug(prompt)
+        logger.debug("=" * 80)
+
+        # 5. Call main LLM
+        logger.info("正在调用主 LLM...")
+        response = llm.invoke(prompt)
+        answer = response.content if hasattr(response, 'content') else str(response)
+
+        # Debug: 输出模型返回结果
+        logger.debug("=" * 80)
+        logger.debug("🤖 主模型返回结果:")
+        logger.debug(answer)
+        logger.debug("=" * 80)
+
+        # Log sources (INFO level)
+        logger.info("=" * 60)
+        logger.info("📎 References:")
+        for i, doc in enumerate(docs):
+            src = doc.metadata.get("source", "unknown")
+            snippet = doc.page_content[:150].replace("\n", " ")
+            logger.info(f"  [{i+1}] {src}")
+            logger.info(f"       Snippet: {snippet}...")
+        logger.info("=" * 60)
+
+        return {
+            "answer": answer,
+            "sources": [
+                {
+                    "source": doc.metadata.get("source", "unknown"),
+                    "content": doc.page_content
+                }
+                for doc in docs
+            ],
+            "agent_mode": False,
+            "summarized_context": summarized_context
+        }
 
 
 @app.get("/health")
@@ -179,7 +250,9 @@ async def health():
     """Health check."""
     return {
         "status": "ok",
-        "vectordb_initialized": services.get("vectordb") is not None
+        "vectordb_initialized": services.get("vectordb") is not None,
+        "agent_enabled": services.get("agent_enabled", False),
+        "agent_initialized": services.get("agent") is not None
     }
 
 
