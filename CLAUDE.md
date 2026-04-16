@@ -12,6 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 在项目根目录下docs/文件夹中创建本次修改总结，以时间（精确到分）+修改总结命名。如果两次修改时间很接近（15min之内）就合并两次修改到一个文件中（这里的合并不是单纯的add,而是融合，也就是说，相对于第一次修改之前的版本，直到第二次修改修改了什么）
 
+所有注释一律用中文！
+
 
 ## 项目概述
 

@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 
 class Config:
-    """Configuration manager that loads from config.yml and environment variables."""
+    """配置管理器，从 config.yml 和环境变量加载配置。"""
 
     _config: Dict[str, Any] = {}
     _loaded: bool = False
