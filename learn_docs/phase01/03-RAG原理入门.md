@@ -45,7 +45,7 @@ RAG 由两个阶段组成：
 ```
 代码文件
     ↓
-按函数/类分割成小片段
+按函数/类分割成小片段（智能保留完整类）
     ↓
 用 Embedding 模型把每个片段转换成向量
     ↓
@@ -58,28 +58,38 @@ RAG 由两个阶段组成：
 1. 整个文件太长，不适合转换成单个向量
 2. 我们需要精确找到相关的代码片段，而不是整个文件
 
-#### 如何分割？
+#### 如何分割？（新版优化策略）
 
-我们的 `index_repo.py` 使用了**智能分割策略**：
+我们的 `index_repo.py` 使用了**更智能的分割策略**，特别是对 Python 代码：
 
-1. **粗分割**：先按函数/类边界分割（防止把一个函数切两半）
-2. **细分割**：再用 `RecursiveCharacterTextSplitter` 切分成合适大小
+1. **先识别类**：优先提取完整的类定义
+2. **判断类长度**：如果类小于 3000 字符，完整保留（不会切开）
+3. **超长类处理**：仅对超过 3000 字符的类，再按方法切分
+4. **独立函数**：正常分割
 
 ```python
 # 伪代码示例
 code = """
-def func1():
-    ...
-    
 class MyClass:
+    def method1(self):
+        ...
+    def method2(self):
+        ...
+
+def standalone_func():
     ...
 """
 
-# 粗分割结果:
-# [ "def func1():...", "class MyClass:..." ]
+# 分割结果（如果类 < 3000 字符）:
+# [ "class MyClass:...", "def standalone_func():..." ]
 
-# 再细分割成更小的块（如果有必要）
+# 如果类 > 3000 字符，才会切开类
 ```
+
+**为什么这样做？**
+- ✅ 类是一个逻辑整体，保持完整有助于 LLM 理解
+- ✅ 避免把一个类的方法切分到不同的片段中
+- ✅ 只对超长类进行切分，兼顾了完整性和向量质量
 
 ---
 
@@ -111,40 +121,64 @@ class MyClass:
 
 ---
 
-### 阶段三：生成（在线阶段）
+### 阶段三：总结（新增的在线阶段）
+
+检索到的代码片段可能较多（本项目返回 Top 7），为了避免信息过载，我们先通过总结模型对检索结果进行总结：
 
 ```
-用户问题 + 检索到的代码片段
+用户问题 + 检索到的 10 条代码片段
     ↓
-组装成 Prompt
+调用总结模型生成概括内容
+    ↓
+得到精炼的总结资料
+```
+
+### 阶段四：生成（在线阶段）
+
+```
+用户问题 + 总结后的资料
+    ↓
+组装成 Prompt（使用 PromptTemplate）
     ↓
 发给 LLM
     ↓
 得到回答
 ```
 
-#### Prompt 示例
+#### Prompt 示例（新版优化）
+
+我们使用 `PromptTemplate` 来构建提示词，更规范、更易维护：
 
 ```
-你是一个代码助手，请根据以下上下文回答问题。
+你是一个专业的代码助手，精通软件工程和代码分析。请根据提供的代码上下文，准确、详细地回答用户的问题。
 
-上下文:
-来源: C:\project\app.py
-内容:
-def main():
-    """项目入口函数"""
-    init_db()
-    start_server()
+## 上下文信息
+### 来源 1: C:\project\app.py
+```
+@app.post("/chat")
+async def chat(query: Query):
+    ...
+```
+```
 
-来源: C:\project\database.py
-内容:
+### 来源 2: C:\project\database.py
+```
 def init_db():
     """初始化数据库"""
     create_tables()
+```
 
-问题: 这个项目的启动流程是什么？
+## 用户问题
+这个项目的启动流程是什么？
 
-请给出详细的回答。
+## 回答要求
+1. 如果答案在上下文中，请直接引用相关代码片段并给出详细解释
+2. 如果上下文不够充分，请基于已有信息给出合理的分析和建议
+3. 回答要条理清晰，分点说明
+4. 对于代码相关问题，给出具体的代码示例或修改建议
+5. 请用中文回答
+
+现在开始回答：
 ```
 
 LLM 看到这个 Prompt 后，就会基于提供的代码片段来回答。
@@ -172,29 +206,34 @@ LLM 看到这个 Prompt 后，就会基于提供的代码片段来回答。
 # 1. 遍历代码文件
 for root, _, files in os.walk(repo_path):
     for file in files:
-        # 2. 按函数/类粗分割
-        blocks = split_by_code_blocks(content, ext)
-        # 3. 细分割
+        # 2. 智能分割（优先保留完整类）
+        blocks = split_by_code_blocks(content, ext, max_class_length)
+        # 3. 细分割（如果需要）
         chunks = splitter.create_documents([block], ...)
-        # 4. 向量化并入库
+        # 4. 向量化并入库（使用 langchain_chroma）
         vectordb = Chroma.from_documents(all_chunks, embeddings, ...)
 ```
 
-### 检索 + 生成阶段 → `app.py`
+### 检索 + 总结 + 生成阶段 → `app.py`
 
 ```python
 @app.post("/chat")
 async def chat(query: Query):
-    # 1. 检索：找到相关代码片段
-    docs = vectordb.similarity_search(query.question, k=3)
-    
-    # 2. 构建 Prompt
-    context = "\n\n".join([f"来源: {doc.metadata['source']}\n内容:\n{doc.page_content}" for doc in docs])
-    prompt = f"你是一个代码助手...\n上下文:\n{context}\n问题: {query.question}"
-    
-    # 3. 生成：调用 LLM
+    # 1. 检索：找到相关代码片段（Top 7）
+    docs = vectordb.similarity_search(query.question, k=retrieval_k)
+
+    # 2. 构建原始上下文
+    raw_context = build_context(docs)
+
+    # 3. 总结：调用总结模型提炼关键信息
+    summarized_context = summarize_context(query.question, raw_context, summarizer_llm)
+
+    # 4. 构建最终 Prompt（使用总结后的资料）
+    prompt = PROMPT_TEMPLATE.format(context=summarized_context, question=query.question)
+
+    # 5. 生成：调用主 LLM
     response = llm.invoke(prompt)
-    
+
     return {"answer": response.content, "sources": docs}
 ```
 
@@ -219,8 +258,21 @@ A: 微调是用你的数据重新训练 LLM 的一部分。对比：
 
 A: 这是个经验值：
 - K=1~2：信息可能不够
-- K=3~5：本项目用的是 3，平衡了信息量和上下文长度
-- K>10：可能包含无关信息，且容易超过上下文限制
+- K=3~5：适合直接传给 LLM 的场景
+- K=7+：本项目用的是 7（可在 config.yml 中配置），配合总结层使用，既保证信息充分，又避免上下文过长
+
+### Q: 为什么需要总结层？
+
+A: 当 K=7 时，检索到的代码片段可能会很长，直接传给主 LLM 可能：
+1. 超过上下文长度限制
+2. 包含冗余信息，干扰主 LLM
+3. 增加 Token 成本
+
+通过总结层先提炼关键信息，可以解决这些问题。
+
+### Q: 为什么要保留完整的类？
+
+A: 类是一个逻辑整体，包含了属性和方法。如果把类切开，LLM 可能无法理解类的完整结构，导致回答质量下降。只有当类特别长时（>3000 字符），我们才切分它。
 
 ---
 

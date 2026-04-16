@@ -1,0 +1,21 @@
+# CodeMind Agent Configuration
+
+chroma:
+  persist_dir: "./chroma_db"
+  chunk_size: 800
+  chunk_overlap: 100
+  retrieval_k: 7
+
+embeddings:
+  model: "text-embedding-v3"
+
+llm:
+  model: "qwen-max"
+  temperature: 0.1
+
+summarizer:
+  model: "qwen-max"
+  temperature: 0.1
+
+splitting:
+  max_class_length: 3000  # Classes longer than this will be split

@@ -38,6 +38,8 @@
 | LLM | Large Language Model，大语言模型 | [01-项目总览.md](./01-项目总览.md) |
 | FastAPI | 现代 Python Web 框架 | [02-技术栈详解.md](./02-技术栈详解.md) |
 | Chroma | 轻量级向量数据库 | [02-技术栈详解.md](./02-技术栈详解.md) |
+| PromptTemplate | LangChain 的提示词模板工具 | [04-代码结构解析.md](./04-代码结构解析.md) |
+| Lifespan | FastAPI 的生命周期管理（替代 startup/shutdown） | [04-代码结构解析.md](./04-代码结构解析.md) |
 
 ## 🚀 下一步
 

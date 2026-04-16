@@ -24,4 +24,5 @@ build/
 *~
 
 # 日志
+logs/
 *.log
