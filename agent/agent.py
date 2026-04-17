@@ -4,15 +4,21 @@ Agent 核心模块
 负责创建和运行 CodeMind Agent，集成工具调用和总结模块。
 支持流式输出和非流式输出两种模式。
 """
+import json
 from typing import List, Any, Dict, Generator, Optional
 from langchain.agents import create_agent
+from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_core.tools import Tool
 from langchain_community.chat_models import ChatTongyi
 
 from utils.logger import get_logger
 from utils.config import Config
-from utils.summarizer import build_context, summarize_context
-from agent.tools import ReadFile, SearchCode, RunCommand
+from utils.summarizer import build_context, summarize_context, create_summarizer
+from .tools import ReadFile, SearchCode, RunCommand
+
+from langchain_chroma import Chroma
+
+from langchain_core.messages import message_to_dict
 
 logger = get_logger("agent.core")
 
@@ -273,13 +279,28 @@ class CodeMindAgent:
 
             stream_context = context if context is not None else {}
 
+
+
+
+
+            # for chunk in self.agent.stream(input_dict, stream_mode="values", context=stream_context):
+            #     last_message = chunk["messages"][-1]
+            #     if last_message.content:
+            #         content = last_message.content.strip()
+            #         if content:
+            #             logger.debug(f"Stream chunk: {content[:50]}...")
+            #             yield content + "\n"
+
+
+
             for chunk in self.agent.stream(input_dict, stream_mode="values", context=stream_context):
                 last_message = chunk["messages"][-1]
-                if last_message.content:
-                    content = last_message.content.strip()
-                    if content:
-                        logger.debug(f"Stream chunk: {content[:50]}...")
-                        yield content + "\n"
+
+                yield message_to_dict(last_message)
+
+
+
+
 
             logger.info("Agent stream completed")
 
@@ -342,3 +363,58 @@ def run_agent_with_summary(
         raw_docs=raw_docs,
         summarizer_llm=summarizer_llm
     )
+
+
+if __name__ == "__main__":
+    agent = CodeMindAgent()
+
+    question = "介绍一下本项目，调用一些可用的工具"
+
+    row_docs = Chroma(
+        persist_directory="./chroma_db",
+        embedding_function=DashScopeEmbeddings(model="text-embedding-v3")
+    ).similarity_search(question, k=7)
+
+    summarizer = create_summarizer(
+        model="qwen-max",
+        temperature=0.1
+    )
+
+    for chunk in agent.execute_stream(question,row_docs,summarizer):
+        message: Dict[str, Any] = {}
+
+        # 跳过human信息
+        if chunk["type"] == "human":
+            continue
+
+        elif chunk["type"] == "ai":
+
+            message["type"] = "ai"
+            message["id"] = chunk["data"]["id"]
+            message["content"] = chunk["data"]["content"]
+
+            # 提取并简化 tool_calls
+            raw_tool_calls = chunk["data"].get("tool_calls", [])
+
+            simplified_tool_calls = []
+            for tc in raw_tool_calls:
+                simplified_tool_calls.append({
+                    "id": tc["id"],
+                    "name": tc["name"],
+                    "args": tc["args"]
+                })
+
+            message["tool_calls"] = simplified_tool_calls
+
+        elif chunk["type"] == "tool":
+            message["type"] = "tool"
+            message["content"] = chunk["data"]["content"]
+            message["tool_call_id"] = chunk["data"]["tool_call_id"]
+            message["name"] = chunk["data"]["name"]
+
+        if not message:
+            continue
+
+        print("*"*30)
+        print(json.dumps(message, ensure_ascii=False), end="", flush=True)
+        print("*"*30)

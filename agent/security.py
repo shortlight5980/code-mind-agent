@@ -102,7 +102,7 @@ def is_sensitive_file(path: str, blocked_patterns: List[str] = None) -> bool:
 
 def is_command_allowed(command: str, allowed_commands: List[str]) -> bool:
     """
-    检查命令是否在白名单内。
+    检查命令是否在白名单内，同时禁止可能产生大量输出的参数。
 
     Args:
         command: 待检查的命令（完整命令字符串）
@@ -111,19 +111,60 @@ def is_command_allowed(command: str, allowed_commands: List[str]) -> bool:
     Returns:
         是否允许执行
     """
+    # Unix 命令到 Windows 命令的映射（用于安全检查）
+    WINDOWS_CMD_MAPPING = {
+        "ls": ["dir"],
+        "cat": ["type"],
+        "grep": ["findstr"],
+        "find": ["find"],
+        "head": ["head"],
+        "tail": ["tail"],
+        "wc": ["wc"],
+        "git": ["git"],
+    }
+
+    # 禁止的参数列表（可能产生大量输出）
+    BLOCKED_ARGS = {
+        "ls": ["-R", "-r", "--recursive"],
+        "dir": ["/S", "/s"],
+        "find": [],  # find 本身已经比较受限，但可以进一步限制
+    }
+
     try:
         # 提取命令的基础名称（第一个词）
         cmd_parts = command.strip().split()
         if not cmd_parts:
             return False
 
-        base_cmd = cmd_parts[0]
+        base_cmd = cmd_parts[0].lower()
+        args = cmd_parts[1:]
 
         # 处理可能包含路径的命令（如 /bin/ls）
         base_cmd = os.path.basename(base_cmd)
 
+        # 检查是否有禁止的参数
+        if base_cmd in BLOCKED_ARGS:
+            for arg in args:
+                if arg in BLOCKED_ARGS[base_cmd]:
+                    logger.warning(f"Command execution denied: {command} (contains blocked arg: {arg})")
+                    return False
+
+        # 也检查映射后的命令
+        for unix_cmd, windows_cmds in WINDOWS_CMD_MAPPING.items():
+            if base_cmd in windows_cmds and unix_cmd in BLOCKED_ARGS:
+                for arg in args:
+                    if arg in BLOCKED_ARGS[unix_cmd]:
+                        logger.warning(f"Command execution denied: {command} (contains blocked arg: {arg})")
+                        return False
+
+        # 直接检查是否在白名单
         if base_cmd in allowed_commands:
             return True
+
+        # 检查是否是映射后的 Windows 命令
+        for unix_cmd, windows_cmds in WINDOWS_CMD_MAPPING.items():
+            if unix_cmd in allowed_commands and base_cmd in windows_cmds:
+                return True
 
         logger.warning(f"Command execution denied: {command} (base cmd: {base_cmd})")
         return False
@@ -138,7 +179,7 @@ def validate_file_access(file_path: str, allowed_dirs: List[str], blocked_patter
 
     Args:
         file_path: 文件路径
-        allowed_dirs: 允许的目录列表
+        allowed_dirs: 允许的目录列表（可以包含 repo_path）
         blocked_patterns: 敏感文件模式列表
 
     Returns:

@@ -21,13 +21,28 @@ cp .env.example .env
 # DASHSCOPE_API_KEY=sk-...
 ```
 
-### 3. 索引代码仓库
+### 3. 配置仓库路径
+
+在 `config.yml` 中设置要索引的仓库路径：
+
+```yaml
+repo:
+  path: "/path/to/your/git/repo"  # 或使用 "." 索引本项目
+```
+
+### 4. 索引代码仓库
 
 ```bash
+# 使用 config.yml 中配置的 repo.path
+python scripts/index_repo.py
+
+# 或者直接指定路径（覆盖 config 中的配置）
 python scripts/index_repo.py /path/to/your/git/repo
 ```
 
-### 4. 启动服务
+### 5. 启动服务
+
+### 6. 启动服务
 
 ```bash
 python app.py
@@ -39,7 +54,7 @@ python app.py
 uvicorn app:app --reload
 ```
 
-### 5. API 调用
+### 7. API 调用
 
 服务默认运行在 `http://localhost:8000`
 

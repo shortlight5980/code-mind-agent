@@ -206,9 +206,17 @@ def split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 30
         return [content]
 
 
-def index_repo(repo_path: str, persist_dir: str = None):
-    """Index code repository into vector database."""
+def index_repo(repo_path: str = None, persist_dir: str = None):
+    """Index code repository into vector database.
+
+    Args:
+        repo_path: 仓库路径，如果不指定则从 config.yml 的 repo.path 读取
+        persist_dir: 向量数据库保存目录，如果不指定则从配置读取
+    """
     Config.load()
+
+    if repo_path is None:
+        repo_path = Config.get("repo.path", ".")
 
     if persist_dir is None:
         persist_dir = Config.get("chroma.persist_dir", "./chroma_db")
@@ -291,7 +299,7 @@ def index_repo(repo_path: str, persist_dir: str = None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Index Git repository to vector database")
-    parser.add_argument("repo_path", help="Repository path to index")
+    parser.add_argument("repo_path", nargs="?", help="Repository path to index (optional, defaults to repo.path in config.yml)")
     parser.add_argument("--persist-dir", help="Vector database save directory")
     args = parser.parse_args()
 

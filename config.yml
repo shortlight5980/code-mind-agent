@@ -6,6 +6,10 @@ chroma:
   chunk_overlap: 100
   retrieval_k: 7
 
+# 被索引的代码仓库路径（用于 Agent 工具查找文件）
+repo:
+  path: "C:/Users/14144/Desktop/CodeMindAgentClient"
+
 embeddings:
   model: "text-embedding-v3"
 
@@ -14,7 +18,7 @@ llm:
   temperature: 0.1
 
 summarizer:
-  model: "qwen-max"
+  model: "qwen-turbo"
   temperature: 0.1
 
 splitting:
