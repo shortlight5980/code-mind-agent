@@ -7,123 +7,38 @@ import asyncio
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from langchain_chroma import Chroma
-from langchain_community.embeddings import DashScopeEmbeddings
-from langchain_community.chat_models import ChatTongyi
-from langchain_core.prompts import PromptTemplate
 
 from utils.logger import get_logger
-from utils.config import Config
-from utils.summarizer import build_context, summarize_context, create_summarizer
+from services.service_manager import ServiceManager
+from rag.context_builder import RAGContextBuilder
+from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
 from agent.agent import CodeMindAgent
 
 logger = get_logger("app")
 
-# Global state
-services: Dict[str, Any] = {}
+# 全局服务管理器实例
+service_manager: ServiceManager
 
 
 class Query(BaseModel):
     question: str
 
 
-# Optimized prompt template
-PROMPT_TEMPLATE = PromptTemplate(
-    input_variables=["context", "question"],
-    template="""You are a professional code assistant, proficient in software engineering and code anal
-         ysis. Please answer the user's questions accurately and in detail based on the provided code context.
-
- ## Context Information
-      {context}
-      
-      ## User Question
-      {question}
-      
-      ## Answer Requirements
-      1. If the answer is in the context, please directly quote the relevant code snippets and provide detail
-      ed explanations
-      2. If the context is insufficient, please provide reasonable analysis and suggestions based on existing
-       information
-      3. The answer should be well-organized and explained in points
-      4. For code-related questions, provide specific code examples or modification suggestions
-      5. Please answer in Chinese
-      
-      Now begin answering:"""
-    )
-
-
-def init_services():
-    """Initialize vector database and LLM services."""
-    Config.load()
-
-    persist_dir = Config.get("chroma.persist_dir", "./chroma_db")
-    retrieval_k = Config.get("chroma.retrieval_k", 7)
-    embedding_model = Config.get("embeddings.model", "text-embedding-v3")
-    llm_model = Config.get("llm.model", "qwen-max")
-    llm_temperature = Config.get("llm.temperature", 0.1)
-    summarizer_model = Config.get("summarizer.model", "qwen-max")
-    summarizer_temperature = Config.get("summarizer.temperature", 0.1)
-    agent_enabled = Config.get("agent.enabled", True)
-
-    logger.info(f"Loading vector database: {persist_dir}")
-
-    # Initialize embeddings
-    embeddings = DashScopeEmbeddings(
-        model=embedding_model,
-    )
-
-    # Load vector database
-    vectordb = Chroma(
-        persist_directory=persist_dir,
-        embedding_function=embeddings
-    )
-
-    # Initialize main LLM (Alibaba Bailian qwen-max)
-    llm = ChatTongyi(
-        model=llm_model,
-        temperature=llm_temperature,
-    )
-
-    # Use summarizer module to create summarizer LLM
-    summarizer_llm = create_summarizer(
-        model=summarizer_model,
-        temperature=summarizer_temperature
-    )
-
-    services["vectordb"] = vectordb
-    services["llm"] = llm
-    services["summarizer_llm"] = summarizer_llm
-    services["retrieval_k"] = retrieval_k
-
-    # Initialize Agent if enabled
-    if agent_enabled:
-        logger.info("Initializing CodeMind Agent...")
-        try:
-            agent = CodeMindAgent()
-            services["agent"] = agent
-            services["agent_enabled"] = True
-            logger.info("CodeMind Agent initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize Agent: {e}")
-            services["agent_enabled"] = False
-    else:
-        services["agent_enabled"] = False
-        logger.info("Agent is disabled in config")
-
-    logger.info("Services initialized successfully")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """FastAPI lifespan event handler for service initialization."""
+    """FastAPI lifespan事件处理器，用于服务初始化和清理"""
+    global service_manager
     try:
-        init_services()
+        service_manager = ServiceManager.get_instance()
+        service_manager.initialize()
     except Exception as e:
-        logger.error(f"Initialization failed: {e}")
+        logger.error(f"初始化失败: {e}")
     yield
-    # Cleanup on shutdown
-    services.clear()
-    logger.info("Services cleaned up")
+    # 关闭时清理
+    service_manager.cleanup()
+    logger.info("服务已清理")
 
 
 app = FastAPI(title="CodeMind Agent API", lifespan=lifespan)
@@ -133,21 +48,21 @@ async def generate_stream(
     agent: CodeMindAgent,
     question: str,
     docs: list,
-    summarizer_llm: ChatTongyi
+    summarizer_llm
 ) -> AsyncGenerator[str, None]:
     """
-    Generate streaming response content.
+    生成流式响应内容
 
     Args:
-        agent: CodeMindAgent instance
-        question: User question
-        docs: Retrieved documents
-        summarizer_llm: Summarizer model
+        agent: CodeMindAgent实例
+        question: 用户问题
+        docs: 检索到的文档
+        summarizer_llm: 摘要模型
 
     Yields:
-        Streaming content chunks
+        流式内容块
     """
-    # Use Agent's streaming output
+    # 使用Agent的流式输出
 
     def process_chunk(chunk):
         message: Dict[str, Any] = {}
@@ -211,8 +126,8 @@ async def generate_stream(
             break  # 生成器结束
 
         if isinstance(item, Exception):
-            logger.error(f"Stream generation failed: {item}")
-            yield f"\n[Error] Streaming failed: {str(item)}\n"
+            logger.error(f"流式生成失败: {item}")
+            yield f"\n[Error] 流式生成失败: {str(item)}\n"
             break
 
         # 处理 chunk
@@ -229,52 +144,36 @@ async def generate_stream(
 
 @app.post("/chat")
 async def chat(query: Query):
-    """Q&A endpoint with Agent support (non-streaming)."""
-    vectordb = services.get("vectordb")
-    llm = services.get("llm")
-    summarizer_llm = services.get("summarizer_llm")
-    retrieval_k = services.get("retrieval_k", 7)
-    agent_enabled = services.get("agent_enabled", False)
-    agent = services.get("agent")
+    """问答接口，支持Agent模式（非流式）"""
+    vectordb = service_manager.vectordb
+    llm = service_manager.llm
+    summarizer_llm = service_manager.summarizer_llm
+    retrieval_k = service_manager.retrieval_k
+    agent_enabled = service_manager.agent_enabled
+    agent = service_manager.agent
 
     if vectordb is None or llm is None or summarizer_llm is None:
-        return {"answer": "Service not initialized, please check if vector database exists"}
+        return {"answer": "服务未初始化，请检查向量数据库是否存在"}
 
-    logger.info(f"Received question: {query.question}")
-    logger.info(f"Agent enabled: {agent_enabled}")
+    logger.info(f"收到问题: {query.question}")
+    logger.info(f"Agent启用: {agent_enabled}")
 
-    # 1. Retrieve relevant documents
-    logger.info(f"Starting vector DB retrieval, count: {retrieval_k}")
+    # 1. 检索相关文档
+    logger.info(f"开始向量数据库检索，数量: {retrieval_k}")
     docs = vectordb.similarity_search(query.question, k=retrieval_k)
 
-    # Debug: Output complete vector DB retrieval results
-    logger.debug("=" * 80)
-    logger.debug(" Vector DB complete results:")
-    for i, doc in enumerate(docs):
-        src = doc.metadata.get("source", "unknown")
-        logger.debug(f"  [{i+1}] Source: {src}")
-        logger.debug(f"  Content:\n{doc.page_content}")
-        logger.debug("-" * 60)
-    logger.debug("=" * 80)
-
-    # 2. Check if Agent should be used
+    # 2. 检查是否使用Agent
     if agent_enabled and agent is not None:
-        logger.info("Using Agent mode (non-streaming)...")
+        logger.info("使用Agent模式（非流式）...")
         result = agent.execute(
             question=query.question,
             raw_docs=docs,
             summarizer_llm=summarizer_llm
         )
 
-        # Log sources (INFO level)
-        logger.info("=" * 60)
-        logger.info(" References (Agent mode):")
-        for i, doc in enumerate(docs):
-            src = doc.metadata.get("source", "unknown")
-            snippet = doc.page_content[:150].replace("\n", " ")
-            logger.info(f"  [{i+1}] {src}")
-            logger.info(f"       Snippet: {snippet}...")
-        logger.info("=" * 60)
+        # 记录来源信息（INFO级别）
+        context_builder = RAGContextBuilder(summarizer_llm)
+        context_builder.log_sources_info(docs)
 
         return {
             "answer": result.get("answer", ""),
@@ -284,135 +183,117 @@ async def chat(query: Query):
             "error": result.get("error")
         }
     else:
-        # Fallback to original mode (non-Agent)
-        logger.info("Using original mode (Agent disabled)...")
+        # 回退到原始模式（非Agent）
+        logger.info("使用原始模式（Agent禁用）...")
 
-        # 2. Build raw context from retrieved docs (using summarizer module)
-        raw_context = build_context(docs)
+        # 使用RAGContextBuilder构建上下文
+        context_builder = RAGContextBuilder(summarizer_llm)
+        processed_context = context_builder.build_context(
+            docs=docs,
+            question=query.question,
+            enable_summarization=True
+        )
 
-        # Debug: Log full raw context
+        # 记录调试信息
+        context_builder.log_context_debug(docs, processed_context)
+
+        # 使用提示词管理器获取提示词
+        prompt_manager = PromptManager.get_instance()
+        prompt_template = prompt_manager.get_prompt(
+            scenario=PromptScenario.GENERAL_QA,
+            language=PromptLanguage.ZH_CN
+        )
+        prompt = prompt_template.format(
+            context=processed_context.summarized_context,
+            question=query.question
+        )
+
+        # 调试：输出最终提示词
         logger.debug("=" * 80)
-        logger.debug(" Full reference material (raw_context):")
-        logger.debug(raw_context)
-        logger.debug("=" * 80)
-
-        # 3. Summarize the raw context (using summarizer module)
-        logger.info("Summarizing retrieved documents...")
-        summarized_context = summarize_context(query.question, raw_context, summarizer_llm)
-
-        # Debug: Log summarized context
-        logger.debug("=" * 80)
-        logger.debug(" Summarized context:")
-        logger.debug(summarized_context)
-        logger.debug("=" * 80)
-
-        # 4. Build final prompt with summarized context
-        prompt = PROMPT_TEMPLATE.format(context=summarized_context, question=query.question)
-
-        # Debug: Output final prompt
-        logger.debug("=" * 80)
-        logger.debug(" Final prompt sent to main model:")
+        logger.debug(" 发送给主模型的最终提示词:")
         logger.debug(prompt)
         logger.debug("=" * 80)
 
-        # 5. Call main LLM
-        logger.info("Calling main LLM...")
+        # 调用主LLM
+        logger.info("调用主LLM...")
         response = llm.invoke(prompt)
         answer = response.content if hasattr(response, 'content') else str(response)
 
-        # Debug: Output model response
+        # 调试：输出模型响应
         logger.debug("=" * 80)
-        logger.debug(" Main model response:")
+        logger.debug(" 主模型响应:")
         logger.debug(answer)
         logger.debug("=" * 80)
 
-        # Log sources (INFO level)
-        logger.info("=" * 60)
-        logger.info(" References:")
-        for i, doc in enumerate(docs):
-            src = doc.metadata.get("source", "unknown")
-            snippet = doc.page_content[:150].replace("\n", " ")
-            logger.info(f"  [{i+1}] {src}")
-            logger.info(f"       Snippet: {snippet}...")
-        logger.info("=" * 60)
+        # 记录来源信息（INFO级别）
+        context_builder.log_sources_info(docs)
 
         return {
             "answer": answer,
-            "sources": [
-                {
-                    "source": doc.metadata.get("source", "unknown"),
-                    "content": doc.page_content
-                }
-                for doc in docs
-            ],
+            "sources": processed_context.sources,
             "agent_mode": False,
-            "summarized_context": summarized_context
+            "summarized_context": processed_context.summarized_context
         }
 
 
 @app.post("/chat/stream")
 async def chat_stream(query: Query):
-    """Q&A endpoint with Agent support (streaming)."""
-    vectordb = services.get("vectordb")
-    summarizer_llm = services.get("summarizer_llm")
-    retrieval_k = services.get("retrieval_k", 7)
-    agent_enabled = services.get("agent_enabled", False)
-    agent = services.get("agent")
+    """问答接口，支持Agent模式（流式）"""
+    vectordb = service_manager.vectordb
+    llm = service_manager.llm
+    summarizer_llm = service_manager.summarizer_llm
+    retrieval_k = service_manager.retrieval_k
+    agent_enabled = service_manager.agent_enabled
+    agent = service_manager.agent
 
     if vectordb is None or summarizer_llm is None:
         return StreamingResponse(
-            iter(["Service not initialized\n"]),
+            iter(["服务未初始化\n"]),
             media_type="text/plain"
         )
 
-    logger.info(f"Received streaming question: {query.question}")
-    logger.info(f"Agent enabled: {agent_enabled}")
+    logger.info(f"收到流式问题: {query.question}")
+    logger.info(f"Agent启用: {agent_enabled}")
 
-    # 1. Retrieve relevant documents
-    logger.info(f"Starting vector DB retrieval, count: {retrieval_k}")
+    # 1. 检索相关文档
+    logger.info(f"开始向量数据库检索，数量: {retrieval_k}")
     docs = vectordb.similarity_search(query.question, k=retrieval_k)
 
-    # Debug: Output complete vector DB retrieval results
-    logger.debug("=" * 80)
-    logger.debug(" Vector DB complete results:")
-    for i, doc in enumerate(docs):
-        src = doc.metadata.get("source", "unknown")
-        logger.debug(f"  [{i+1}] Source: {src}")
-        logger.debug(f"  Content:\n{doc.page_content}")
-        logger.debug("-" * 60)
-    logger.debug("=" * 80)
+    # 使用RAGContextBuilder记录调试信息
+    context_builder = RAGContextBuilder(summarizer_llm)
 
-    # Log sources (INFO level)
-    logger.info("=" * 60)
-    logger.info(" References (streaming):")
-    for i, doc in enumerate(docs):
-        src = doc.metadata.get("source", "unknown")
-        snippet = doc.page_content[:150].replace("\n", " ")
-        logger.info(f"  [{i+1}] {src}")
-        logger.info(f"       Snippet: {snippet}...")
-    logger.info("=" * 60)
+    # 记录来源信息（INFO级别）
+    context_builder.log_sources_info(docs)
 
-    # 2. Check if Agent should be used
+    # 2. 检查是否使用Agent
     if agent_enabled and agent is not None:
-        logger.info("Using Agent mode (streaming)...")
+        logger.info("使用Agent模式（流式）...")
         return StreamingResponse(
             generate_stream(agent, query.question, docs, summarizer_llm),
             media_type="text/plain"
         )
     else:
-        # Fallback to original mode (non-Agent, non-streaming for simplicity)
-        logger.info("Agent not available, using non-streaming fallback...")
+        # 回退到原始模式（非Agent，为简单起见使用非流式）
+        logger.info("Agent不可用，使用非流式回退...")
 
-        # Build context and get answer
-        raw_context = build_context(docs)
-        summarized_context = summarize_context(query.question, raw_context, summarizer_llm)
-        prompt = PROMPT_TEMPLATE.format(context=summarized_context, question=query.question)
-
-        from langchain_community.chat_models import ChatTongyi
-        llm = ChatTongyi(
-            model=Config.get("llm.model", "qwen-max"),
-            temperature=Config.get("llm.temperature", 0.1),
+        # 使用RAGContextBuilder构建上下文
+        processed_context = context_builder.build_context(
+            docs=docs,
+            question=query.question,
+            enable_summarization=True
         )
+
+        # 使用提示词管理器获取提示词
+        prompt_manager = PromptManager.get_instance()
+        prompt_template = prompt_manager.get_prompt(
+            scenario=PromptScenario.GENERAL_QA,
+            language=PromptLanguage.ZH_CN
+        )
+        prompt = prompt_template.format(
+            context=processed_context.summarized_context,
+            question=query.question
+        )
+
         response = llm.invoke(prompt)
         answer = response.content if hasattr(response, 'content') else str(response)
 
@@ -424,12 +305,12 @@ async def chat_stream(query: Query):
 
 @app.get("/health")
 async def health():
-    """Health check."""
+    """健康检查"""
     return {
         "status": "ok",
-        "vectordb_initialized": services.get("vectordb") is not None,
-        "agent_enabled": services.get("agent_enabled", False),
-        "agent_initialized": services.get("agent") is not None
+        "vectordb_initialized": service_manager.vectordb is not None,
+        "agent_enabled": service_manager.agent_enabled,
+        "agent_initialized": service_manager.agent is not None
     }
 
 
