@@ -5,7 +5,7 @@ SearchCode 工具
 """
 import os
 import re
-from typing import Optional, List
+from typing import List
 from langchain_core.tools import tool
 
 from utils.logger import get_logger
@@ -140,6 +140,8 @@ def SearchCode(query: str, is_regex: bool = False, search_dir: str = ".") -> str
             return f"未找到匹配内容: {query}"
 
         header = f"搜索结果 (共 {match_count} 个匹配):\n" + "=" * 80 + "\n"
+        logger.info("[ToolsCall] " + header)
+        logger.debug("\n".join(results))
         return header + "\n".join(results)
 
     except Exception as e:

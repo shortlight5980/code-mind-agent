@@ -3,7 +3,6 @@ ReadFile 工具
 
 使用 LangChain @tool 装饰器定义，用于读取指定仓库文件内容，支持行号范围。
 """
-import os
 from typing import Optional
 from langchain_core.tools import tool
 
@@ -28,7 +27,7 @@ def ReadFile(file_path: str, start_line: Optional[int] = None, end_line: Optiona
     """
     from utils.config import Config
 
-    logger.info(f"ReadFile called: file_path={file_path}, start_line={start_line}, end_line={end_line}")
+    logger.info(f"[ToolsCall] ReadFile called: file_path={file_path}, start_line={start_line}, end_line={end_line}")
 
     # 加载配置
     allowed_dirs = Config.get("agent.allowed_dirs", ["."])
@@ -71,6 +70,7 @@ def ReadFile(file_path: str, start_line: Optional[int] = None, end_line: Optiona
         separator = "-" * 80 + "\n"
 
         logger.info(f"Successfully read file: {file_path}")
+        logger.debug(file_info + separator + content)
         return file_info + separator + content
 
     except UnicodeDecodeError:

@@ -36,8 +36,10 @@ def extract_python_classes_and_functions(content: str, max_class_length: int = 3
 
     i = 0
     n = len(lines)
+    max_iterations = n * 2  # 防止死循环的安全措施
 
-    while i < n:
+    while i < n and max_iterations > 0:
+        max_iterations -= 1
         line = lines[i]
 
         # Check for class definition
@@ -48,11 +50,16 @@ def extract_python_classes_and_functions(content: str, max_class_length: int = 3
             i += 1
 
             # Find end of class (next non-indented or EOF)
-            while i < n:
+            class_end = i
+            while i < n and max_iterations > 0:
+                max_iterations -= 1
                 curr_line = lines[i]
-                if curr_line.strip() and not curr_line.startswith(class_indent + ' ') and not curr_line.startswith(class_indent + '\t'):
-                    # Check if it's not just a blank line continuation
-                    if not (def_pattern.match(curr_line) and len(curr_line) - len(curr_line.lstrip()) > len(class_indent)):
+                stripped = curr_line.strip()
+                if stripped:
+                    # 计算当前行的缩进
+                    curr_indent = len(curr_line) - len(stripped)
+                    # 如果当前行缩进小于等于类缩进，说明类结束了
+                    if curr_indent <= len(class_indent):
                         break
                 i += 1
 
@@ -78,10 +85,14 @@ def extract_python_classes_and_functions(content: str, max_class_length: int = 3
                 i += 1
 
                 # Find end of function
-                while i < n:
+                while i < n and max_iterations > 0:
+                    max_iterations -= 1
                     curr_line = lines[i]
-                    if curr_line.strip() and not curr_line.startswith(' ') and not curr_line.startswith('\t'):
-                        break
+                    stripped = curr_line.strip()
+                    if stripped:
+                        curr_indent = len(curr_line) - len(stripped)
+                        if curr_indent == 0:
+                            break
                     i += 1
 
                 func_content = '\n'.join(lines[def_start:i])
@@ -91,7 +102,8 @@ def extract_python_classes_and_functions(content: str, max_class_length: int = 3
 
         # Collect other code as-is until next class/function
         other_start = i
-        while i < n:
+        while i < n and max_iterations > 0:
+            max_iterations -= 1
             curr_line = lines[i]
             if class_pattern.match(curr_line) or def_pattern.match(curr_line):
                 break
@@ -100,6 +112,9 @@ def extract_python_classes_and_functions(content: str, max_class_length: int = 3
         other_content = '\n'.join(lines[other_start:i])
         if other_content.strip():
             blocks.append(other_content)
+
+    if max_iterations <= 0:
+        logger.warning("Reached max iterations, possible infinite loop detected")
 
     return blocks
 
@@ -111,37 +126,47 @@ def _split_class_by_methods(class_content: str, class_indent: str):
         return []
 
     blocks = []
-    # First block: class definition up to first method
-    method_pattern = re.compile(r'^' + re.escape(class_indent) + r'(\s+)def\s+\w+')
-
-    i = 0
     n = len(lines)
+    max_iterations = n * 2  # 防止死循环
 
-    # Class signature + fields
-    while i < n:
-        if method_pattern.match(lines[i]):
-            break
+    # First, find class header (everything before first method)
+    i = 0
+    while i < n and max_iterations > 0:
+        max_iterations -= 1
+        line = lines[i]
+        stripped = line.strip()
+        if stripped:
+            curr_indent = len(line) - len(stripped)
+            # 方法通常比类多一层缩进（4个空格）
+            if curr_indent > len(class_indent) and stripped.startswith('def '):
+                break
         i += 1
 
+    # Add class header
     class_header = '\n'.join(lines[:i])
     if class_header.strip():
         blocks.append(class_header)
 
     # Now split by methods
-    while i < n:
-        method_match = method_pattern.match(lines[i])
-        if method_match:
-            method_indent = class_indent + method_match.group(1)
+    while i < n and max_iterations > 0:
+        max_iterations -= 1
+        line = lines[i]
+        stripped = line.strip()
+
+        if stripped and stripped.startswith('def '):
+            method_indent_len = len(line) - len(stripped)
             method_start = i
             i += 1
 
-            while i < n:
+            # Find end of method
+            while i < n and max_iterations > 0:
+                max_iterations -= 1
                 curr_line = lines[i]
-                if curr_line.strip():
-                    # Check if next line is less indented than method body
-                    curr_indent = len(curr_line) - len(curr_line.lstrip())
-                    method_body_indent = len(method_indent) + 4  # Assume 4-space indent
-                    if curr_indent <= len(method_indent) and not method_pattern.match(curr_line):
+                curr_stripped = curr_line.strip()
+                if curr_stripped:
+                    curr_indent = len(curr_line) - len(curr_stripped)
+                    # 如果缩进小于等于方法缩进，说明方法结束
+                    if curr_indent <= method_indent_len:
                         break
                 i += 1
 
@@ -150,6 +175,9 @@ def _split_class_by_methods(class_content: str, class_indent: str):
                 blocks.append(method_content)
         else:
             i += 1
+
+    if max_iterations <= 0:
+        logger.warning("Reached max iterations in _split_class_by_methods")
 
     return blocks
 

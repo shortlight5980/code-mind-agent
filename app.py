@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
-from typing import Dict, Any
+from typing import Dict, Any, AsyncGenerator
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
@@ -10,7 +11,7 @@ from langchain_core.prompts import PromptTemplate
 from utils.logger import get_logger
 from utils.config import Config
 from utils.summarizer import build_context, summarize_context, create_summarizer
-from agent.agent import create_codemind_agent, run_agent_with_summary
+from agent.agent import CodeMindAgent
 
 logger = get_logger("app")
 
@@ -25,23 +26,26 @@ class Query(BaseModel):
 # Optimized prompt template
 PROMPT_TEMPLATE = PromptTemplate(
     input_variables=["context", "question"],
-    template="""你是一个专业的代码助手，精通软件工程和代码分析。请根据提供的代码上下文，准确、详细地回答用户的问题。
+    template="""You are a professional code assistant, proficient in software engineering and code anal
+         ysis. Please answer the user's questions accurately and in detail based on the provided code context.
 
-## 上下文信息
-{context}
-
-## 用户问题
-{question}
-
-## 回答要求
-1. 如果答案在上下文中，请直接引用相关代码片段并给出详细解释
-2. 如果上下文不够充分，请基于已有信息给出合理的分析和建议
-3. 回答要条理清晰，分点说明
-4. 对于代码相关问题，给出具体的代码示例或修改建议
-5. 请用中文回答
-
-现在开始回答："""
-)
+ ## Context Information
+      {context}
+      
+      ## User Question
+      {question}
+      
+      ## Answer Requirements
+      1. If the answer is in the context, please directly quote the relevant code snippets and provide detail
+      ed explanations
+      2. If the context is insufficient, please provide reasonable analysis and suggestions based on existing
+       information
+      3. The answer should be well-organized and explained in points
+      4. For code-related questions, provide specific code examples or modification suggestions
+      5. Please answer in Chinese
+      
+      Now begin answering:"""
+    )
 
 
 def init_services():
@@ -91,7 +95,7 @@ def init_services():
     if agent_enabled:
         logger.info("Initializing CodeMind Agent...")
         try:
-            agent = create_codemind_agent()
+            agent = CodeMindAgent()
             services["agent"] = agent
             services["agent_enabled"] = True
             logger.info("CodeMind Agent initialized successfully")
@@ -121,9 +125,40 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="CodeMind Agent API", lifespan=lifespan)
 
 
+async def generate_stream(
+    agent: CodeMindAgent,
+    question: str,
+    docs: list,
+    summarizer_llm: ChatTongyi
+) -> AsyncGenerator[str, None]:
+    """
+    Generate streaming response content.
+
+    Args:
+        agent: CodeMindAgent instance
+        question: User question
+        docs: Retrieved documents
+        summarizer_llm: Summarizer model
+
+    Yields:
+        Streaming content chunks
+    """
+    try:
+        # Use Agent's streaming output
+        for chunk in agent.execute_stream(
+            question=question,
+            raw_docs=docs,
+            summarizer_llm=summarizer_llm
+        ):
+            yield chunk
+    except Exception as e:
+        logger.error(f"Stream generation failed: {e}")
+        yield f"\n[Error] Streaming failed: {str(e)}\n"
+
+
 @app.post("/chat")
 async def chat(query: Query):
-    """Q&A endpoint with Agent support."""
+    """Q&A endpoint with Agent support (non-streaming)."""
     vectordb = services.get("vectordb")
     llm = services.get("llm")
     summarizer_llm = services.get("summarizer_llm")
@@ -138,32 +173,31 @@ async def chat(query: Query):
     logger.info(f"Agent enabled: {agent_enabled}")
 
     # 1. Retrieve relevant documents
-    logger.info(f"开始检索向量库，检索数量: {retrieval_k}")
+    logger.info(f"Starting vector DB retrieval, count: {retrieval_k}")
     docs = vectordb.similarity_search(query.question, k=retrieval_k)
 
-    # Debug: 输出向量库检索完整结果
+    # Debug: Output complete vector DB retrieval results
     logger.debug("=" * 80)
-    logger.debug("📚 向量库检索完整结果:")
+    logger.debug(" Vector DB complete results:")
     for i, doc in enumerate(docs):
         src = doc.metadata.get("source", "unknown")
-        logger.debug(f"  [{i+1}] 来源: {src}")
-        logger.debug(f"  内容:\n{doc.page_content}")
+        logger.debug(f"  [{i+1}] Source: {src}")
+        logger.debug(f"  Content:\n{doc.page_content}")
         logger.debug("-" * 60)
     logger.debug("=" * 80)
 
     # 2. Check if Agent should be used
     if agent_enabled and agent is not None:
-        logger.info("Using Agent mode...")
-        result = run_agent_with_summary(
+        logger.info("Using Agent mode (non-streaming)...")
+        result = agent.execute(
             question=query.question,
-            agent=agent,
             raw_docs=docs,
             summarizer_llm=summarizer_llm
         )
 
         # Log sources (INFO level)
         logger.info("=" * 60)
-        logger.info("📎 References (Agent mode):")
+        logger.info(" References (Agent mode):")
         for i, doc in enumerate(docs):
             src = doc.metadata.get("source", "unknown")
             snippet = doc.page_content[:150].replace("\n", " ")
@@ -187,7 +221,7 @@ async def chat(query: Query):
 
         # Debug: Log full raw context
         logger.debug("=" * 80)
-        logger.debug("📚 完整参考材料 (raw_context):")
+        logger.debug(" Full reference material (raw_context):")
         logger.debug(raw_context)
         logger.debug("=" * 80)
 
@@ -197,33 +231,33 @@ async def chat(query: Query):
 
         # Debug: Log summarized context
         logger.debug("=" * 80)
-        logger.debug("📝 总结后的上下文 (summarized_context):")
+        logger.debug(" Summarized context:")
         logger.debug(summarized_context)
         logger.debug("=" * 80)
 
         # 4. Build final prompt with summarized context
         prompt = PROMPT_TEMPLATE.format(context=summarized_context, question=query.question)
 
-        # Debug: 输出最终提示词
+        # Debug: Output final prompt
         logger.debug("=" * 80)
-        logger.debug("💬 发送给主模型的最终提示词:")
+        logger.debug(" Final prompt sent to main model:")
         logger.debug(prompt)
         logger.debug("=" * 80)
 
         # 5. Call main LLM
-        logger.info("正在调用主 LLM...")
+        logger.info("Calling main LLM...")
         response = llm.invoke(prompt)
         answer = response.content if hasattr(response, 'content') else str(response)
 
-        # Debug: 输出模型返回结果
+        # Debug: Output model response
         logger.debug("=" * 80)
-        logger.debug("🤖 主模型返回结果:")
+        logger.debug(" Main model response:")
         logger.debug(answer)
         logger.debug("=" * 80)
 
         # Log sources (INFO level)
         logger.info("=" * 60)
-        logger.info("📎 References:")
+        logger.info(" References:")
         for i, doc in enumerate(docs):
             src = doc.metadata.get("source", "unknown")
             snippet = doc.page_content[:150].replace("\n", " ")
@@ -243,6 +277,78 @@ async def chat(query: Query):
             "agent_mode": False,
             "summarized_context": summarized_context
         }
+
+
+@app.post("/chat/stream")
+async def chat_stream(query: Query):
+    """Q&A endpoint with Agent support (streaming)."""
+    vectordb = services.get("vectordb")
+    summarizer_llm = services.get("summarizer_llm")
+    retrieval_k = services.get("retrieval_k", 7)
+    agent_enabled = services.get("agent_enabled", False)
+    agent = services.get("agent")
+
+    if vectordb is None or summarizer_llm is None:
+        return StreamingResponse(
+            iter(["Service not initialized\n"]),
+            media_type="text/plain"
+        )
+
+    logger.info(f"Received streaming question: {query.question}")
+    logger.info(f"Agent enabled: {agent_enabled}")
+
+    # 1. Retrieve relevant documents
+    logger.info(f"Starting vector DB retrieval, count: {retrieval_k}")
+    docs = vectordb.similarity_search(query.question, k=retrieval_k)
+
+    # Debug: Output complete vector DB retrieval results
+    logger.debug("=" * 80)
+    logger.debug(" Vector DB complete results:")
+    for i, doc in enumerate(docs):
+        src = doc.metadata.get("source", "unknown")
+        logger.debug(f"  [{i+1}] Source: {src}")
+        logger.debug(f"  Content:\n{doc.page_content}")
+        logger.debug("-" * 60)
+    logger.debug("=" * 80)
+
+    # Log sources (INFO level)
+    logger.info("=" * 60)
+    logger.info(" References (streaming):")
+    for i, doc in enumerate(docs):
+        src = doc.metadata.get("source", "unknown")
+        snippet = doc.page_content[:150].replace("\n", " ")
+        logger.info(f"  [{i+1}] {src}")
+        logger.info(f"       Snippet: {snippet}...")
+    logger.info("=" * 60)
+
+    # 2. Check if Agent should be used
+    if agent_enabled and agent is not None:
+        logger.info("Using Agent mode (streaming)...")
+        return StreamingResponse(
+            generate_stream(agent, query.question, docs, summarizer_llm),
+            media_type="text/plain"
+        )
+    else:
+        # Fallback to original mode (non-Agent, non-streaming for simplicity)
+        logger.info("Agent not available, using non-streaming fallback...")
+
+        # Build context and get answer
+        raw_context = build_context(docs)
+        summarized_context = summarize_context(query.question, raw_context, summarizer_llm)
+        prompt = PROMPT_TEMPLATE.format(context=summarized_context, question=query.question)
+
+        from langchain_community.chat_models import ChatTongyi
+        llm = ChatTongyi(
+            model=Config.get("llm.model", "qwen-max"),
+            temperature=Config.get("llm.temperature", 0.1),
+        )
+        response = llm.invoke(prompt)
+        answer = response.content if hasattr(response, 'content') else str(response)
+
+        return StreamingResponse(
+            iter([answer]),
+            media_type="text/plain"
+        )
 
 
 @app.get("/health")

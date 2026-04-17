@@ -7,9 +7,6 @@
 ### 1. 环境准备
 
 ```bash
-# 激活 conda 环境
-conda activate AI
-
 # 安装依赖
 pip install -r requirements.txt
 ```

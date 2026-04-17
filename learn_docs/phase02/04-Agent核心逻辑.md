@@ -1,3 +1,20 @@
+# 04. Agent 核心逻辑
+
+Agent 核心模块是整个系统的大脑，负责：
+1. 创建和配置 Agent
+2. 运行 Agent 并处理工具调用循环
+3. 集成总结模块
+4. 支持流式输出和非流式输出
+
+在本文档中，我们还会详细讲解 **LangChain 1.0 API 的迁移**！
+
+---
+
+## 完整代码解析
+
+### 头部导入
+
+```python
 """
 Agent 核心模块
 
@@ -5,7 +22,7 @@ Agent 核心模块
 支持流式输出和非流式输出两种模式。
 """
 from typing import List, Any, Dict, Generator, Optional
-from langchain.agents import create_agent
+from langchain.agents import create_agent  # 只需这一个导入！
 from langchain_core.tools import Tool
 from langchain_community.chat_models import ChatTongyi
 
@@ -15,8 +32,25 @@ from utils.summarizer import build_context, summarize_context
 from agent.tools import ReadFile, SearchCode, RunCommand
 
 logger = get_logger("agent.core")
+```
 
+**关键变化！**
 
+旧版（LangChain < 1.0）：
+```python
+from langchain.agents import AgentExecutor, create_react_agent  # 两个导入
+```
+
+新版（LangChain 1.0+）：
+```python
+from langchain.agents import create_agent  # 只需一个！
+```
+
+---
+
+### 一、获取工具列表
+
+```python
 def get_tools() -> List[Tool]:
     """
     获取所有可用的 Agent 工具列表。
@@ -25,8 +59,15 @@ def get_tools() -> List[Tool]:
         工具对象列表
     """
     return [ReadFile, SearchCode, RunCommand]
+```
 
+很简单，就是把三个工具组装成列表。
 
+---
+
+### 二、加载系统提示词
+
+```python
 def load_system_prompts() -> str:
     """
     加载 Agent 系统提示词。
@@ -48,8 +89,15 @@ def load_system_prompts() -> str:
 3. 回答要条理清晰，分点说明
 4. 对于代码相关问题，给出具体的代码示例或修改建议
 5. 请用中文回答"""
+```
 
+---
 
+### 三、CodeMindAgent 类
+
+这是新增的核心类，封装了所有 Agent 功能！
+
+```python
 class CodeMindAgent:
     """
     CodeMind Agent 封装类
@@ -96,24 +144,27 @@ class CodeMindAgent:
         )
 
         logger.info("CodeMindAgent initialized successfully")
+```
 
-    def _build_user_message(self, question: str, summarized_context: str) -> str:
-        """
-        构建用户消息内容，将上下文和问题组合。
+#### 使用示例
 
-        Args:
-            question: 用户问题
-            summarized_context: 总结后的上下文
+```python
+# 创建 Agent 实例
+agent = CodeMindAgent()
 
-        Returns:
-            组合后的用户消息
-        """
-        return f"""## 上下文信息
-{summarized_context}
+# 非流式执行
+result = agent.execute("介绍一下项目结构")
 
-## 用户问题
-{question}"""
+# 流式执行
+for chunk in agent.execute_stream("介绍一下项目结构"):
+    print(chunk, end="")
+```
 
+---
+
+### 四、非流式执行：execute()
+
+```python
     def execute(
         self,
         question: str,
@@ -220,7 +271,15 @@ class CodeMindAgent:
                 ]
 
             return result
+```
 
+---
+
+### 五、流式执行：execute_stream()
+
+这是新增的核心功能！
+
+```python
     def execute_stream(
         self,
         question: str,
@@ -290,9 +349,38 @@ class CodeMindAgent:
             if summarized_context:
                 error_msg += f"\n\n以下是基于检索结果的总结：\n\n{summarized_context}"
             yield error_msg + "\n"
+```
 
+---
 
-# 向后兼容的函数
+### 六、辅助方法：_build_user_message()
+
+```python
+    def _build_user_message(self, question: str, summarized_context: str) -> str:
+        """
+        构建用户消息内容，将上下文和问题组合。
+
+        Args:
+            question: 用户问题
+            summarized_context: 总结后的上下文
+
+        Returns:
+            组合后的用户消息
+        """
+        return f"""## 上下文信息
+{summarized_context}
+
+## 用户问题
+{question}"""
+```
+
+---
+
+### 七、向后兼容的函数
+
+为了保持向后兼容，我们保留了原有的函数：
+
+```python
 def create_codemind_agent(
     model: str = None,
     temperature: float = None
@@ -332,7 +420,6 @@ def run_agent_with_summary(
         包含回答和来源的字典
     """
     # 创建 CodeMindAgent 实例并复用传入的 agent 对象
-    # 注意：这里我们创建一个临时实例来使用 execute 方法
     temp_agent = CodeMindAgent()
     # 替换内部的 agent 为传入的实例（保持向后兼容）
     temp_agent.agent = agent
@@ -342,3 +429,125 @@ def run_agent_with_summary(
         raw_docs=raw_docs,
         summarizer_llm=summarizer_llm
     )
+```
+
+---
+
+## 新旧 API 对比总结
+
+| 项目 | 旧版（< 1.0） | 新版（1.0+） |
+|------|--------------|-------------|
+| **导入** | `AgentExecutor, create_react_agent` | `create_agent` |
+| **创建** | 先 `create_react_agent`，再 `AgentExecutor` | 只需 `create_agent` |
+| **提示词** | `prompt=CODEMIND_AGENT_PROMPT` (PromptTemplate) | `system_prompt="..."` (纯文本) |
+| **返回值** | `AgentExecutor` 实例 | 可直接 invoke 的 agent |
+| **调用** | `agent_executor.invoke({"question": "..."})` | `agent.invoke({"messages": [...]})` |
+| **封装** | 独立函数 | `CodeMindAgent` 类 |
+| **流式输出** | ❌ 不支持 | ✅ `execute_stream()` |
+
+---
+
+## 降级方案设计
+
+注意这段代码：
+
+```python
+except Exception as e:
+    logger.error(f"Agent execution failed: {e}")
+    # 降级方案：如果 Agent 失败，使用总结后的上下文直接回答
+    logger.info("Falling back to summarized context...")
+    return {
+        "answer": f"Agent 执行遇到问题，以下是基于检索结果的总结：\n\n{summarized_context}",
+        # ...
+    }
+```
+
+**为什么需要降级方案？**
+
+Agent 可能会失败的情况：
+- LLM 解析工具调用失败
+- 工具执行出错
+- 网络问题
+- LangChain API 变更
+
+有了降级方案，即使 Agent 挂了，系统仍然能返回一个可用的回答！
+
+---
+
+## 完整的迁移指南
+
+### 1. 更新依赖
+
+确保 `requirements.txt` 中有：
+```txt
+langchain>=1.0.0
+langchain-community>=0.3.0
+langchain-core>=1.0.0
+```
+
+### 2. 更新导入
+
+```python
+# ❌ 旧版
+from langchain.agents import AgentExecutor, create_react_agent
+
+# ✅ 新版
+from langchain.agents import create_agent
+```
+
+### 3. 更新提示词
+
+```python
+# ❌ 旧版：用 PromptTemplate
+agent = create_react_agent(
+    llm=llm,
+    tools=tools,
+    prompt=CODEMIND_AGENT_PROMPT,  # PromptTemplate 对象
+)
+
+# ✅ 新版：用纯文本
+agent = create_agent(
+    model=llm,
+    tools=tools,
+    system_prompt="你是一个有用的助手",  # 纯文本字符串
+)
+```
+
+### 4. 更新调用方式
+
+```python
+# ❌ 旧版
+agent_executor = AgentExecutor(agent=agent, tools=tools, ...)
+result = agent_executor.invoke({"question": "..."})
+answer = result["output"]
+
+# ✅ 新版（使用 CodeMindAgent 类）
+agent = CodeMindAgent()
+
+# 非流式
+result = agent.execute("...")
+answer = result["answer"]
+
+# 流式
+for chunk in agent.execute_stream("..."):
+    print(chunk, end="")
+```
+
+---
+
+## 关键设计决策总结
+
+| 决策 | 说明 |
+|------|------|
+| **先总结再 Agent** | 减少 Token 消耗，提高效率 |
+| **降级方案** | Agent 失败时仍能返回回答 |
+| **详细日志** | Debug 级别记录完整交互，Info 级别记录关键步骤 |
+| **纯文本 system_prompt** | 适配 LangChain 1.0 新 API |
+| **CodeMindAgent 类** | 统一封装，支持流式和非流式 |
+| **向后兼容** | 保留原有函数，平滑迁移 |
+
+---
+
+## 下一步
+
+现在你理解了 Agent 核心逻辑，接下来阅读 [05-完整集成与测试.md](./05-完整集成与测试.md)，学习如何将 Agent 集成到 app.py 中！

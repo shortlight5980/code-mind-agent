@@ -64,6 +64,7 @@ def RunCommand(command: str) -> str:
         output.append(f"\n返回码: {result.returncode}")
 
         logger.info(f"Command executed successfully: {command}")
+        logger.debug("\n".join(output))
         return "\n".join(output)
 
     except subprocess.TimeoutExpired:
