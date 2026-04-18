@@ -4,7 +4,6 @@
 提供路径、文件、命令的安全验证功能，防止 Agent 执行危险操作。
 """
 import os
-import re
 from typing import List
 from fnmatch import fnmatch
 

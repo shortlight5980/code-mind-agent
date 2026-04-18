@@ -2,7 +2,7 @@
 提示词管理模块
 提供提示词版本管理、多语言支持、不同场景模板
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 from enum import Enum
 from dataclasses import dataclass
 from langchain_core.prompts import PromptTemplate as LangChainPromptTemplate
@@ -19,8 +19,8 @@ class PromptScenario(Enum):
     ARCHITECTURE_DESIGN = "architecture_design"
     CODE_REVIEW = "code_review"
     GENERAL_QA = "general_qa"
-    AGENT_SYSTEM = "agent_system"      # Agent 系统提示词
-    SUMMARIZATION = "summarization"    # 总结提示词
+    AGENT_SYSTEM = "agent_system"  # Agent 系统提示词
+    SUMMARIZATION = "summarization"  # 总结提示词
 
 
 class PromptLanguage(Enum):
@@ -265,10 +265,10 @@ Now begin answering:""",
         logger.debug(f"注册提示词: {key}")
 
     def _get_prompt_key(
-        self,
-        scenario: PromptScenario,
-        language: PromptLanguage,
-        version: Optional[str] = None
+            self,
+            scenario: PromptScenario,
+            language: PromptLanguage,
+            version: Optional[str] = None
     ) -> str:
         """
         生成提示词存储键
@@ -286,10 +286,10 @@ Now begin answering:""",
         return f"{scenario.value}:{language.value}:{version}"
 
     def get_prompt(
-        self,
-        scenario: PromptScenario = PromptScenario.GENERAL_QA,
-        language: PromptLanguage = PromptLanguage.ZH_CN,
-        version: Optional[str] = None
+            self,
+            scenario: PromptScenario = PromptScenario.GENERAL_QA,
+            language: PromptLanguage = PromptLanguage.ZH_CN,
+            version: Optional[str] = None
     ) -> LangChainPromptTemplate:
         """
         获取提示词模板
@@ -331,13 +331,13 @@ Now begin answering:""",
         )
 
     def add_custom_prompt(
-        self,
-        scenario: str,
-        language: str,
-        version: str,
-        template: str,
-        input_variables: list,
-        description: str
+            self,
+            scenario: str,
+            language: str,
+            version: str,
+            template: str,
+            input_variables: list,
+            description: str
     ) -> None:
         """
         添加自定义提示词

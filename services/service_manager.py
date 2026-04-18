@@ -122,21 +122,14 @@ class ServiceManager:
 
     def _init_agent(self) -> None:
         """初始化CodeMind Agent"""
-        agent_enabled = Config.get("agent.enabled", True)
-
-        if agent_enabled:
-            logger.info("初始化CodeMind Agent...")
-            try:
-                agent = CodeMindAgent()
-                self._services["agent"] = agent
-                self._services["agent_enabled"] = True
-                logger.info("CodeMind Agent初始化成功")
-            except Exception as e:
-                logger.error(f"Agent初始化失败: {e}")
-                self._services["agent_enabled"] = False
-        else:
-            self._services["agent_enabled"] = False
-            logger.info("Agent在配置中已禁用")
+        logger.info("初始化CodeMind Agent...")
+        try:
+            agent = CodeMindAgent()
+            self._services["agent"] = agent
+            logger.info("CodeMind Agent初始化成功")
+        except Exception as e:
+            logger.error(f"Agent初始化失败: {e}")
+            raise
 
     def get(self, service_name: str, default: Any = None) -> Any:
         """
@@ -191,10 +184,6 @@ class ServiceManager:
         """Agent服务"""
         return self._services.get("agent")
 
-    @property
-    def agent_enabled(self) -> bool:
-        """Agent是否启用"""
-        return self._services.get("agent_enabled", False)
 
     @property
     def retrieval_k(self) -> int:
