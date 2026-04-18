@@ -12,7 +12,10 @@
       "Bash(python -c \"from prompts.prompt_manager import PromptManager; print\\('PromptManager导入成功'\\)\")",
       "Bash(python -c \"from agent.agent import load_system_prompts; print\\('load_system_prompts导入成功'\\)\")",
       "Bash(python -c \"from utils.summarizer import get_summarizer_prompt_template; print\\('summarizer导入成功'\\)\")",
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "Bash(python -m py_compile agent/__init__.py)",
+      "Bash(python -m py_compile agent/streaming.py)",
+      "Bash(python -m py_compile rag/context_builder.py)"
     ]
   }
 }

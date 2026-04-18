@@ -97,50 +97,5 @@ async def agenerate_agent_stream(
         yield f"\n[Error] 异步流式生成失败: {str(e)}\n"
 
 
-async def generate_agent_stream(
-    agent: CodeMindAgent,
-    question: str,
-    docs: list,
-    summarizer_llm: ChatTongyi
-) -> AsyncGenerator[str, None]:
-    """
-    已弃用：请使用 agenerate_agent_stream 替代
-
-    生成 Agent 流式响应（向后兼容包装器）
-
-    Args:
-        agent: CodeMindAgent 实例
-        question: 用户问题
-        docs: 检索到的文档
-        summarizer_llm: 摘要模型
-
-    Yields:
-        SSE 格式的流式响应
-    """
-    logger.warning("generate_agent_stream 已弃用，请使用 agenerate_agent_stream")
-    async for chunk in agenerate_agent_stream(agent, question, docs, summarizer_llm):
-        yield chunk
 
 
-def process_sync_stream(
-    agent: CodeMindAgent,
-    question: str,
-    docs: list,
-    summarizer_llm: ChatTongyi
-) -> Generator[Dict[str, Any], None, None]:
-    """
-    处理同步流式输出，返回格式化后的消息
-
-    Args:
-        agent: CodeMindAgent 实例
-        question: 用户问题
-        docs: 检索到的文档
-        summarizer_llm: 摘要模型
-
-    Yields:
-        格式化后的消息字典
-    """
-    for chunk in agent.execute_stream(question, docs, summarizer_llm):
-        message = process_chunk(chunk)
-        if message:
-            yield message

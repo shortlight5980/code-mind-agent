@@ -480,56 +480,8 @@ class CodeMindAgent:
             yield {"type": "error", "data": {"content": error_msg}}
 
 
-# 向后兼容的函数
-def create_codemind_agent(
-    model: str = None,
-    temperature: float = None
-):
-    """
-    创建并配置 CodeMind Agent（向后兼容）。
-
-    Args:
-        model: 模型名称，默认从配置读取
-        temperature: 温度参数，默认从配置读取
-
-    Returns:
-        配置好的 Agent 实例（可直接调用 invoke/stream）
-    """
-    agent_instance = CodeMindAgent(model=model, temperature=temperature)
-    return agent_instance.agent
 
 
-def run_agent_with_summary(
-    question: str,
-    agent,
-    raw_docs: List[Any],
-    summarizer_llm: ChatTongyi
-) -> Dict[str, Any]:
-    """
-    运行 Agent，先对检索结果进行总结，再执行 Agent（向后兼容）。
-
-    注意：此函数保留向后兼容性，新代码建议使用 CodeMindAgent 类。
-
-    Args:
-        question: 用户问题
-        agent: Agent 实例（来自 create_codemind_agent）
-        raw_docs: 向量检索返回的原始文档列表
-        summarizer_llm: 总结模型实例
-
-    Returns:
-        包含回答和来源的字典
-    """
-    # 创建 CodeMindAgent 实例并复用传入的 agent 对象
-    # 注意：这里我们创建一个临时实例来使用 execute 方法
-    temp_agent = CodeMindAgent()
-    # 替换内部的 agent 为传入的实例（保持向后兼容）
-    temp_agent.agent = agent
-
-    return temp_agent.execute(
-        question=question,
-        raw_docs=raw_docs,
-        summarizer_llm=summarizer_llm
-    )
 
 
 if __name__ == "__main__":

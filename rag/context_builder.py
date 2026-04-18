@@ -167,61 +167,8 @@ class RAGContextBuilder:
         """
         return await asummarize_context(question, raw_context, self.summarizer_llm)
 
-    def fuse_documents(
-        self,
-        docs: List[Document],
-        strategy: str = "simple_concat"
-    ) -> str:
-        """
-        多文档融合策略
 
-        Args:
-            docs: 文档列表
-            strategy: 融合策略
-                - "simple_concat": 简单拼接
-                - "weighted": 按相似度加权
-                - "rerank": 重排序后融合
 
-        Returns:
-            融合后的上下文
-        """
-        if strategy == "simple_concat":
-            return self._concat_documents(docs)
-        elif strategy == "weighted":
-            return self._fuse_weighted(docs)
-        elif strategy == "rerank":
-            return self._fuse_rerank(docs)
-        else:
-            logger.warning(f"未知的融合策略: {strategy}，使用简单拼接")
-            return self._concat_documents(docs)
-
-    def _fuse_weighted(self, docs: List[Document]) -> str:
-        """
-        按相似度加权融合（预留实现）
-
-        Args:
-            docs: 文档列表
-
-        Returns:
-            融合后的上下文
-        """
-        # TODO: 实现基于相似度分数的加权融合
-        logger.debug("使用加权融合策略（当前为简单拼接）")
-        return self._concat_documents(docs)
-
-    def _fuse_rerank(self, docs: List[Document]) -> str:
-        """
-        重排序后融合（预留实现）
-
-        Args:
-            docs: 文档列表
-
-        Returns:
-            融合后的上下文
-        """
-        # TODO: 实现基于 LLM 的文档重排序
-        logger.debug("使用重排序融合策略（当前为简单拼接）")
-        return self._concat_documents(docs)
 
     def log_context_debug(
         self,
