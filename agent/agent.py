@@ -13,7 +13,7 @@ from langchain_community.chat_models import ChatTongyi
 
 from utils.logger import get_logger
 from utils.config import Config
-from utils.summarizer import build_context, asummarize_context
+from utils.summarizer import asummarize_context
 from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
 from .tools import ReadFile, SearchCode, RunCommand
 
@@ -123,11 +123,7 @@ class CodeMindAgent:
         Returns:
             组合后的用户消息
         """
-        return f"""## 上下文信息
-{summarized_context}
-
-## 用户问题
-{question}"""
+        return f"""## 上下文信息\n{summarized_context}\n\n## 用户问题\n{question}\n\n"""
 
     async def aexecute(
             self,
@@ -148,13 +144,9 @@ class CodeMindAgent:
 
         summarized_context = ""
         if raw_docs is not None:
-            # 步骤 1：从检索文档构建原始上下文
-            raw_context = build_context(raw_docs)
-            logger.debug("原始上下文已构建")
-
-            # 步骤 2：使用总结模块进行总结（异步）
+            # 使用总结模块进行总结（异步，内部完成上下文构建）
             logger.info("正在总结检索到的上下文 (异步)...")
-            summarized_context = await asummarize_context(question, raw_context, self.summarizer_llm)
+            summarized_context = await asummarize_context(question, raw_docs, self.summarizer_llm)
             logger.debug("上下文总结完成")
 
         # 步骤 3：构建用户消息内容
@@ -255,13 +247,9 @@ class CodeMindAgent:
 
         summarized_context = ""
         if raw_docs is not None:
-            # 步骤 1：从检索文档构建原始上下文
-            raw_context = build_context(raw_docs)
-            logger.debug("原始上下文已构建")
-
-            # 步骤 2：使用总结模块进行总结（异步）
+            # 使用总结模块进行总结（异步，内部完成上下文构建）
             logger.info("正在总结检索到的上下文 (异步)...")
-            summarized_context = await asummarize_context(question, raw_context, self.summarizer_llm)
+            summarized_context = await asummarize_context(question, raw_docs, self.summarizer_llm)
             logger.debug("上下文总结完成")
 
         # 步骤 3：构建用户消息内容

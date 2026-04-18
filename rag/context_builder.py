@@ -2,13 +2,13 @@
 RAG 上下文构建模块
 负责文档拼接、基于问题的摘要压缩、多文档融合策略等上下文处理逻辑
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 from langchain_core.documents import Document
 from langchain_community.chat_models import ChatTongyi
 
 from utils.logger import get_logger
-from utils.summarizer import build_context, summarize_context, asummarize_context
+from utils.summarizer import build_context, asummarize_context
 
 logger = get_logger("context_builder")
 
@@ -33,50 +33,11 @@ class RAGContextBuilder:
         """
         self.summarizer_llm = summarizer_llm
 
-    def build_context(
-        self,
-        docs: List[Document],
-        question: Optional[str] = None,
-        enable_summarization: bool = True
-    ) -> ProcessedContext:
-        """
-        构建 RAG 上下文
-
-        Args:
-            docs: 检索到的文档列表
-            question: 用户问题（用于摘要压缩）
-            enable_summarization: 是否启用摘要压缩
-
-        Returns:
-            处理后的上下文结果
-        """
-        logger.info(f"开始构建上下文，文档数量: {len(docs)}")
-
-        # 1. 构建原始上下文
-        raw_context = self._concat_documents(docs)
-        logger.debug(f"原始上下文长度: {len(raw_context)} 字符")
-
-        # 2. 生成来源列表
-        sources = self._extract_sources(docs)
-
-        # 3. 如果启用摘要且有问题，则进行摘要压缩
-        summarized_context = raw_context
-        if enable_summarization and question:
-            logger.info("启用摘要压缩...")
-            summarized_context = self._compress_context(raw_context, question)
-            logger.debug(f"摘要后上下文长度: {len(summarized_context)} 字符")
-
-        return ProcessedContext(
-            raw_context=raw_context,
-            summarized_context=summarized_context,
-            sources=sources
-        )
-
     async def abuild_context(
-        self,
-        docs: List[Document],
-        question: Optional[str] = None,
-        enable_summarization: bool = True
+            self,
+            docs: List[Document],
+            question: Optional[str] = None,
+            enable_summarization: bool = True
     ) -> ProcessedContext:
         """
         异步版本：构建 RAG 上下文
@@ -141,19 +102,6 @@ class RAGContextBuilder:
             })
         return sources
 
-    def _compress_context(self, raw_context: str, question: str) -> str:
-        """
-        基于问题压缩上下文
-
-        Args:
-            raw_context: 原始上下文
-            question: 用户问题
-
-        Returns:
-            压缩后的上下文
-        """
-        return summarize_context(question, raw_context, self.summarizer_llm)
-
     async def _acompress_context(self, raw_context: str, question: str) -> str:
         """
         异步版本：基于问题压缩上下文
@@ -167,13 +115,10 @@ class RAGContextBuilder:
         """
         return await asummarize_context(question, raw_context, self.summarizer_llm)
 
-
-
-
     def log_context_debug(
-        self,
-        docs: List[Document],
-        processed_context: ProcessedContext
+            self,
+            docs: List[Document],
+            processed_context: ProcessedContext
     ) -> None:
         """
         记录上下文调试信息
@@ -187,7 +132,7 @@ class RAGContextBuilder:
         logger.debug(" 向量数据库完整结果:")
         for i, doc in enumerate(docs):
             src = doc.metadata.get("source", "unknown")
-            logger.debug(f"  [{i+1}] 来源: {src}")
+            logger.debug(f"  [{i + 1}] 来源: {src}")
             logger.debug(f"  内容:\n{doc.page_content}")
             logger.debug("-" * 60)
         logger.debug("=" * 80)
@@ -216,6 +161,6 @@ class RAGContextBuilder:
         for i, doc in enumerate(docs):
             src = doc.metadata.get("source", "unknown")
             snippet = doc.page_content[:150].replace("\n", " ")
-            logger.info(f"  [{i+1}] {src}")
+            logger.info(f"  [{i + 1}] {src}")
             logger.info(f"       片段: {snippet}...")
         logger.info("=" * 60)
