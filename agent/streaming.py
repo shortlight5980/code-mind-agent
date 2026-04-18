@@ -4,8 +4,6 @@ Agent 流式处理模块
 负责 Agent 流式输出的消息格式化和异步/同步桥接逻辑
 """
 import json
-import queue
-import asyncio
 from typing import Dict, Any, AsyncGenerator, Generator, Optional
 from langchain_community.chat_models import ChatTongyi
 
@@ -57,16 +55,16 @@ def process_chunk(chunk: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return message if message else None
 
 
-async def generate_agent_stream(
+async def agenerate_agent_stream(
     agent: CodeMindAgent,
     question: str,
     docs: list,
     summarizer_llm: ChatTongyi
 ) -> AsyncGenerator[str, None]:
     """
-    生成 Agent 流式响应（异步/同步桥接）
+    生成 Agent 流式响应（真正异步版本）
 
-    封装 Agent 的同步流式生成器，提供异步接口
+    使用 Agent 的异步流式接口，提供真正的异步性能
 
     Args:
         agent: CodeMindAgent 实例
@@ -77,46 +75,51 @@ async def generate_agent_stream(
     Yields:
         SSE 格式的流式响应
     """
-    # 创建线程安全的队列，用于传递生成器产出的数据
-    data_queue = queue.Queue()
+    logger.info("启动真正的异步 Agent 流...")
 
-    # 在独立线程中运行同步生成器
-    def run_sync_generator():
-        try:
-            for chunk in agent.execute_stream(question, docs, summarizer_llm):
-                data_queue.put(chunk)
-        except Exception as e:
-            data_queue.put(e)
-        finally:
-            data_queue.put(None)
+    try:
+        async for chunk in agent.aexecute_stream(question, docs, summarizer_llm):
+            # 处理 chunk
+            message = process_chunk(chunk)
 
-    # 启动线程
-    loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, run_sync_generator)
+            if message:
+                logger.info("+" * 20)
+                logger.info(f"[response_message] {json.dumps(message, ensure_ascii=False)}")
+                logger.info("+" * 20)
 
-    # 异步从队列中拉取数据
-    while True:
-        item = await asyncio.to_thread(data_queue.get)
+                yield f"data: {json.dumps(message, ensure_ascii=False)}\n\n"
 
-        if item is None:
-            # 发送结束标志
-            yield "data: [DONE]\n\n"
-            break
+        # 发送结束标志
+        yield "data: [DONE]\n\n"
 
-        if isinstance(item, Exception):
-            logger.error(f"流式生成失败: {item}")
-            yield f"\n[Error] 流式生成失败: {str(item)}\n"
-            break
+    except Exception as e:
+        logger.error(f"异步流式生成失败: {e}")
+        yield f"\n[Error] 异步流式生成失败: {str(e)}\n"
 
-        # 处理 chunk
-        message = process_chunk(item)
 
-        if message:
-            logger.info("+" * 20)
-            logger.info(f"[response_message] {json.dumps(message, ensure_ascii=False)}")
-            logger.info("+" * 20)
+async def generate_agent_stream(
+    agent: CodeMindAgent,
+    question: str,
+    docs: list,
+    summarizer_llm: ChatTongyi
+) -> AsyncGenerator[str, None]:
+    """
+    已弃用：请使用 agenerate_agent_stream 替代
 
-            yield f"data: {json.dumps(message, ensure_ascii=False)}\n\n"
+    生成 Agent 流式响应（向后兼容包装器）
+
+    Args:
+        agent: CodeMindAgent 实例
+        question: 用户问题
+        docs: 检索到的文档
+        summarizer_llm: 摘要模型
+
+    Yields:
+        SSE 格式的流式响应
+    """
+    logger.warning("generate_agent_stream 已弃用，请使用 agenerate_agent_stream")
+    async for chunk in agenerate_agent_stream(agent, question, docs, summarizer_llm):
+        yield chunk
 
 
 def process_sync_stream(

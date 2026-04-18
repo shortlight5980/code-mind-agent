@@ -4,9 +4,9 @@ Agent 核心模块是整个系统的大脑，负责：
 1. 创建和配置 Agent
 2. 运行 Agent 并处理工具调用循环
 3. 集成总结模块
-4. 支持流式输出和非流式输出
+4. 支持流式输出和非流式输出（同步和异步版本）
 
-在本文档中，我们还会详细讲解 **LangChain 1.0 API 的迁移**！
+在本文档中，我们还会详细讲解 **LangChain 1.0 API 的迁移**以及**全面异步化改造**！
 
 ---
 
@@ -19,17 +19,20 @@ Agent 核心模块是整个系统的大脑，负责：
 Agent 核心模块
 
 负责创建和运行 CodeMind Agent，集成工具调用和总结模块。
-支持流式输出和非流式输出两种模式。
+支持流式输出和非流式输出两种模式，同时提供同步和异步版本。
 """
-from typing import List, Any, Dict, Generator, Optional
-from langchain.agents import create_agent  # 只需这一个导入！
+import json
+from typing import List, Any, Dict, Generator, Optional, AsyncGenerator
+from langchain.agents import create_agent
 from langchain_core.tools import Tool
 from langchain_community.chat_models import ChatTongyi
 
 from utils.logger import get_logger
 from utils.config import Config
-from utils.summarizer import build_context, summarize_context
+from utils.summarizer import build_context, summarize_context, asummarize_context
 from agent.tools import ReadFile, SearchCode, RunCommand
+
+from langchain_core.messages import message_to_dict
 
 logger = get_logger("agent.core")
 ```
@@ -44,6 +47,11 @@ from langchain.agents import AgentExecutor, create_react_agent  # 两个导入
 新版（LangChain 1.0+）：
 ```python
 from langchain.agents import create_agent  # 只需一个！
+```
+
+**工具导入：**
+```python
+from agent.tools import ReadFile, SearchCode, RunCommand  # 工具！
 ```
 
 ---
@@ -61,7 +69,7 @@ def get_tools() -> List[Tool]:
     return [ReadFile, SearchCode, RunCommand]
 ```
 
-很简单，就是把三个工具组装成列表。
+这里返回的是标准工具！LangChain 1.x 可以自动处理这些工具的异步调用，不需要单独的异步工具版本。
 
 ---
 
@@ -91,6 +99,8 @@ def load_system_prompts() -> str:
 5. 请用中文回答"""
 ```
 
+注意：提示词中的工具名称使用标准版本（`ReadFile`、`SearchCode`、`RunCommand`）。
+
 ---
 
 ### 三、CodeMindAgent 类
@@ -103,6 +113,7 @@ class CodeMindAgent:
     CodeMind Agent 封装类
 
     提供统一的接口来执行 Agent 任务，支持流式输出和非流式输出。
+    同时提供同步和异步版本的方法。
     """
 
     def __init__(
@@ -152,11 +163,18 @@ class CodeMindAgent:
 # 创建 Agent 实例
 agent = CodeMindAgent()
 
-# 非流式执行
+# 非流式执行（同步）
 result = agent.execute("介绍一下项目结构")
 
-# 流式执行
+# 非流式执行（异步）
+result = await agent.aexecute("介绍一下项目结构")
+
+# 流式执行（同步）
 for chunk in agent.execute_stream("介绍一下项目结构"):
+    print(chunk, end="")
+
+# 流式执行（异步）
+async for chunk in agent.aexecute_stream("介绍一下项目结构"):
     print(chunk, end="")
 ```
 
@@ -275,9 +293,128 @@ for chunk in agent.execute_stream("介绍一下项目结构"):
 
 ---
 
-### 五、流式执行：execute_stream()
+### 五、异步非流式执行：aexecute()
 
-这是新增的核心功能！
+这是真正的异步版本！
+
+```python
+    async def aexecute(
+        self,
+        question: str,
+        raw_docs: Optional[List[Any]] = None,
+        summarizer_llm: Optional[ChatTongyi] = None
+    ) -> Dict[str, Any]:
+        """
+        异步版本：非流式执行 Agent 任务。
+
+        Args:
+            question: 用户问题
+            raw_docs: 向量检索返回的原始文档列表（可选）
+            summarizer_llm: 总结模型实例（可选，提供 raw_docs 时必须提供）
+
+        Returns:
+            包含回答和来源的字典
+        """
+        logger.info(f"执行 Agent (异步非流式)，问题: {question}")
+
+        summarized_context = ""
+        if raw_docs is not None and summarizer_llm is not None:
+            # 步骤 1：从检索文档构建原始上下文
+            raw_context = build_context(raw_docs)
+            logger.debug("原始上下文已构建")
+
+            # 步骤 2：使用总结模块进行总结（异步）
+            logger.info("正在总结检索到的上下文 (异步)...")
+            summarized_context = await asummarize_context(question, raw_context, summarizer_llm)
+            logger.debug("上下文总结完成")
+
+        # 步骤 3：构建用户消息内容
+        user_message_content = self._build_user_message(question, summarized_context)
+
+        # Debug: 输出发送给 Agent 的提示词
+        logger.debug("=" * 80)
+        logger.debug("💬 发送给 Agent 的用户消息 (异步):")
+        logger.debug(user_message_content)
+        logger.debug("=" * 80)
+
+        # 步骤 4：运行 Agent（异步）
+        logger.info("正在调用 Agent (异步)...")
+        try:
+            response = await self.agent.ainvoke({
+                "messages": [
+                    {"role": "user", "content": user_message_content}
+                ]
+            })
+
+            logger.info("Agent 执行完成 (异步)")
+
+            # Debug: 输出 Agent 的完整返回结果
+            logger.debug("=" * 80)
+            logger.debug("🤖 Agent 完整返回结果 (异步):")
+            for i, msg in enumerate(response["messages"]):
+                role = msg.get("role", "unknown") if isinstance(msg, dict) else getattr(msg, "role", "unknown")
+                content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+                logger.debug(f"  [{i+1}] 角色: {role}")
+                logger.debug(f"  内容:\n{content}")
+                logger.debug("-" * 60)
+            logger.debug("=" * 80)
+
+            # 获取最终回答：messages 列表的最后一条
+            answer = response["messages"][-1].content
+
+            # Info: 输出最终答案
+            logger.info("=" * 80)
+            logger.info("✅ Agent 最终答案 (异步):")
+            logger.info(answer)
+            logger.info("=" * 80)
+
+            result = {
+                "answer": answer,
+                "summarized_context": summarized_context
+            }
+
+            if raw_docs is not None:
+                result["sources"] = [
+                    {
+                        "source": doc.metadata.get("source", "unknown"),
+                        "content": doc.page_content
+                    }
+                    for doc in raw_docs
+                ]
+
+            return result
+        except Exception as e:
+            logger.error(f"Agent 执行失败 (异步): {e}")
+            # 降级方案：如果 Agent 失败，使用总结后的上下文直接回答
+            logger.info("正在回退到总结上下文...")
+
+            result = {
+                "answer": f"Agent 执行遇到问题，以下是基于检索结果的总结：\n\n{summarized_context}",
+                "summarized_context": summarized_context,
+                "error": str(e)
+            }
+
+            if raw_docs is not None:
+                result["sources"] = [
+                    {
+                        "source": doc.metadata.get("source", "unknown"),
+                        "content": doc.page_content
+                    }
+                    for doc in raw_docs
+                ]
+
+            return result
+```
+
+**关键异步 API：**
+- `await asummarize_context()` - 异步总结
+- `await self.agent.ainvoke()` - 异步调用 Agent
+
+---
+
+### 六、流式执行：execute_stream()
+
+这是同步版本的流式执行。
 
 ```python
     def execute_stream(
@@ -334,11 +471,7 @@ for chunk in agent.execute_stream("介绍一下项目结构"):
 
             for chunk in self.agent.stream(input_dict, stream_mode="values", context=stream_context):
                 last_message = chunk["messages"][-1]
-                if last_message.content:
-                    content = last_message.content.strip()
-                    if content:
-                        logger.debug(f"Stream chunk: {content[:50]}...")
-                        yield content + "\n"
+                yield message_to_dict(last_message)
 
             logger.info("Agent stream completed")
 
@@ -353,7 +486,85 @@ for chunk in agent.execute_stream("介绍一下项目结构"):
 
 ---
 
-### 六、辅助方法：_build_user_message()
+### 七、异步流式执行：aexecute_stream()
+
+这是真正的异步流式版本！
+
+```python
+    async def aexecute_stream(
+        self,
+        question: str,
+        raw_docs: Optional[List[Any]] = None,
+        summarizer_llm: Optional[ChatTongyi] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        异步版本：流式执行 Agent 任务。
+
+        Args:
+            question: 用户问题
+            raw_docs: 向量检索返回的原始文档列表（可选）
+            summarizer_llm: 总结模型实例（可选，提供 raw_docs 时必须提供）
+            context: 附加上下文参数（可选）
+
+        Yields:
+            流式输出的内容片段
+        """
+        logger.info(f"执行 Agent (异步流式)，问题: {question}")
+
+        summarized_context = ""
+        if raw_docs is not None and summarizer_llm is not None:
+            # 步骤 1：从检索文档构建原始上下文
+            raw_context = build_context(raw_docs)
+            logger.debug("原始上下文已构建")
+
+            # 步骤 2：使用总结模块进行总结（异步）
+            logger.info("正在总结检索到的上下文 (异步)...")
+            summarized_context = await asummarize_context(question, raw_context, summarizer_llm)
+            logger.debug("上下文总结完成")
+
+        # 步骤 3：构建用户消息内容
+        user_message_content = self._build_user_message(question, summarized_context)
+
+        # Debug: 输出发送给 Agent 的提示词
+        logger.debug("=" * 80)
+        logger.debug("💬 发送给 Agent 的用户消息 (异步流式):")
+        logger.debug(user_message_content)
+        logger.debug("=" * 80)
+
+        # 步骤 4：流式运行 Agent（异步）
+        logger.info("正在启动 Agent 流 (异步)...")
+        try:
+            input_dict = {
+                "messages": [
+                    {"role": "user", "content": user_message_content}
+                ]
+            }
+
+            stream_context = context if context is not None else {}
+
+            async for chunk in self.agent.astream(input_dict, stream_mode="values", context=stream_context):
+                last_message = chunk["messages"][-1]
+                yield message_to_dict(last_message)
+
+            logger.info("Agent 流完成 (异步)")
+
+        except Exception as e:
+            logger.error(f"Agent 流执行失败 (异步): {e}")
+            # 降级方案：如果流式执行失败，返回错误信息
+            error_msg = f"Agent 流式执行遇到问题：{str(e)}"
+            if summarized_context:
+                error_msg += f"\n\n以下是基于检索结果的总结：\n\n{summarized_context}"
+            yield {"type": "error", "data": {"content": error_msg}}
+```
+
+**关键异步 API：**
+- `await asummarize_context()` - 异步总结
+- `async for` + `self.agent.astream()` - 异步流式迭代
+
+---
+
+### 八、辅助方法：_build_user_message()
 
 ```python
     def _build_user_message(self, question: str, summarized_context: str) -> str:
@@ -376,7 +587,7 @@ for chunk in agent.execute_stream("介绍一下项目结构"):
 
 ---
 
-### 七、向后兼容的函数
+### 九、向后兼容的函数
 
 为了保持向后兼容，我们保留了原有的函数：
 
@@ -444,6 +655,31 @@ def run_agent_with_summary(
 | **调用** | `agent_executor.invoke({"question": "..."})` | `agent.invoke({"messages": [...]})` |
 | **封装** | 独立函数 | `CodeMindAgent` 类 |
 | **流式输出** | ❌ 不支持 | ✅ `execute_stream()` |
+| **异步支持** | ❌ 不支持 | ✅ `aexecute()`、`aexecute_stream()` |
+
+---
+
+## 同步 vs 异步方法对比
+
+| 功能 | 同步方法 | 异步方法 |
+|------|---------|---------|
+| 非流式执行 | `execute()` | `aexecute()` |
+| 流式执行 | `execute_stream()` | `aexecute_stream()` |
+| 总结模块 | `summarize_context()` | `asummarize_context()` |
+| Agent 调用 | `agent.invoke()` | `agent.ainvoke()` |
+| Agent 流式 | `agent.stream()` | `agent.astream()` |
+
+---
+
+## 异步 API 命名规范
+
+LangChain 的异步 API 通常在同步 API 前加前缀 `a`：
+
+| 同步 API | 异步 API |
+|---------|---------|
+| `invoke()` | `ainvoke()` |
+| `stream()` | `astream()` |
+| `similarity_search()` | `asimilarity_search()` |
 
 ---
 
@@ -524,12 +760,20 @@ answer = result["output"]
 # ✅ 新版（使用 CodeMindAgent 类）
 agent = CodeMindAgent()
 
-# 非流式
+# 非流式（同步）
 result = agent.execute("...")
 answer = result["answer"]
 
-# 流式
+# 非流式（异步）
+result = await agent.aexecute("...")
+answer = result["answer"]
+
+# 流式（同步）
 for chunk in agent.execute_stream("..."):
+    print(chunk, end="")
+
+# 流式（异步）
+async for chunk in agent.aexecute_stream("..."):
     print(chunk, end="")
 ```
 
@@ -545,9 +789,11 @@ for chunk in agent.execute_stream("..."):
 | **纯文本 system_prompt** | 适配 LangChain 1.0 新 API |
 | **CodeMindAgent 类** | 统一封装，支持流式和非流式 |
 | **向后兼容** | 保留原有函数，平滑迁移 |
+| **全面异步化** | 提供同步和异步两套 API |
+| **自动异步处理** | LangChain 1.x 自动处理工具的异步调用 |
 
 ---
 
 ## 下一步
 
-现在你理解了 Agent 核心逻辑，接下来阅读 [05-完整集成与测试.md](./05-完整集成与测试.md)，学习如何将 Agent 集成到 app.py 中！
+现在你理解了 Agent 核心逻辑（包括异步版本），接下来阅读 [05-完整集成与测试.md](./05-完整集成与测试.md)，学习如何将 Agent 集成到 app.py 中！

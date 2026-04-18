@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile agent/tools/read_file.py)",
+      "Bash(python -m py_compile agent/tools/search_code.py)",
+      "Bash(python -m py_compile agent/tools/run_command.py)",
+      "Bash(python -m py_compile agent/tools/__init__.py)",
+      "Bash(python -m py_compile agent/agent.py)",
+      "Bash(python -m py_compile app.py)",
+      "Bash(python -m py_compile prompts/prompt_manager.py)",
+      "Bash(python -m py_compile utils/summarizer.py)",
+      "Bash(python -c \"from prompts.prompt_manager import PromptManager; print\\('PromptManager导入成功'\\)\")",
+      "Bash(python -c \"from agent.agent import load_system_prompts; print\\('load_system_prompts导入成功'\\)\")",
+      "Bash(python -c \"from utils.summarizer import get_summarizer_prompt_template; print\\('summarizer导入成功'\\)\")",
+      "Bash(python -c ':*)"
+    ]
+  }
+}

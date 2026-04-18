@@ -1,5 +1,5 @@
-import json
 from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
@@ -9,7 +9,7 @@ from utils.logger import get_logger
 from services.service_manager import ServiceManager
 from rag.context_builder import RAGContextBuilder
 from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
-from agent.streaming import generate_agent_stream
+from agent.streaming import agenerate_agent_stream
 
 logger = get_logger("app")
 
@@ -21,6 +21,11 @@ class Query(BaseModel):
     question: str
 
 
+async def single_result_generator(text: str) -> AsyncGenerator[str, None]:
+    """异步生成单个结果的生成器，用于非流式回退场景"""
+    yield text
+
+
 
 
 @asynccontextmanager
@@ -29,11 +34,15 @@ async def lifespan(app: FastAPI):
     global service_manager
     try:
         service_manager = ServiceManager.get_instance()
+        # TODO: 使用 asyncio.to_thread() 包装同步初始化，避免阻塞事件循环
+        # await asyncio.to_thread(service_manager.initialize)
         service_manager.initialize()
     except Exception as e:
         logger.error(f"初始化失败: {e}")
     yield
     # 关闭时清理
+    # TODO: 使用 asyncio.to_thread() 包装同步清理，避免阻塞事件循环
+    # await asyncio.to_thread(service_manager.cleanup)
     service_manager.cleanup()
     logger.info("服务已清理")
 
@@ -44,7 +53,7 @@ app = FastAPI(title="CodeMind Agent API", lifespan=lifespan)
 
 @app.post("/chat")
 async def chat(query: Query):
-    """问答接口，支持Agent模式（非流式）"""
+    """问答接口，支持Agent模式（非流式，真正异步）"""
     vectordb = service_manager.vectordb
     llm = service_manager.llm
     summarizer_llm = service_manager.summarizer_llm
@@ -58,14 +67,14 @@ async def chat(query: Query):
     logger.info(f"收到问题: {query.question}")
     logger.info(f"Agent启用: {agent_enabled}")
 
-    # 1. 检索相关文档
-    logger.info(f"开始向量数据库检索，数量: {retrieval_k}")
-    docs = vectordb.similarity_search(query.question, k=retrieval_k)
+    # 1. 检索相关文档（异步）
+    logger.info(f"开始向量数据库检索 (异步)，数量: {retrieval_k}")
+    docs = await vectordb.asimilarity_search(query.question, k=retrieval_k)
 
     # 2. 检查是否使用Agent
     if agent_enabled and agent is not None:
-        logger.info("使用Agent模式（非流式）...")
-        result = agent.execute(
+        logger.info("使用Agent模式（异步非流式）...")
+        result = await agent.aexecute(
             question=query.question,
             raw_docs=docs,
             summarizer_llm=summarizer_llm
@@ -83,12 +92,12 @@ async def chat(query: Query):
             "error": result.get("error")
         }
     else:
-        # 回退到原始模式（非Agent）
-        logger.info("使用原始模式（Agent禁用）...")
+        # 回退到原始模式（非Agent，异步）
+        logger.info("使用原始模式（Agent禁用，异步）...")
 
-        # 使用RAGContextBuilder构建上下文
+        # 使用RAGContextBuilder构建上下文（异步）
         context_builder = RAGContextBuilder(summarizer_llm)
-        processed_context = context_builder.build_context(
+        processed_context = await context_builder.abuild_context(
             docs=docs,
             question=query.question,
             enable_summarization=True
@@ -110,18 +119,18 @@ async def chat(query: Query):
 
         # 调试：输出最终提示词
         logger.debug("=" * 80)
-        logger.debug(" 发送给主模型的最终提示词:")
+        logger.debug(" 发送给主模型的最终提示词 (异步):")
         logger.debug(prompt)
         logger.debug("=" * 80)
 
-        # 调用主LLM
-        logger.info("调用主LLM...")
-        response = llm.invoke(prompt)
+        # 调用主LLM（异步）
+        logger.info("调用主LLM (异步)...")
+        response = await llm.ainvoke(prompt)
         answer = response.content if hasattr(response, 'content') else str(response)
 
         # 调试：输出模型响应
         logger.debug("=" * 80)
-        logger.debug(" 主模型响应:")
+        logger.debug(" 主模型响应 (异步):")
         logger.debug(answer)
         logger.debug("=" * 80)
 
@@ -138,7 +147,7 @@ async def chat(query: Query):
 
 @app.post("/chat/stream")
 async def chat_stream(query: Query):
-    """问答接口，支持Agent模式（流式）"""
+    """问答接口，支持Agent模式（流式，真正异步）"""
     vectordb = service_manager.vectordb
     llm = service_manager.llm
     summarizer_llm = service_manager.summarizer_llm
@@ -148,16 +157,16 @@ async def chat_stream(query: Query):
 
     if vectordb is None or summarizer_llm is None:
         return StreamingResponse(
-            iter(["服务未初始化\n"]),
+            single_result_generator("服务未初始化\n"),
             media_type="text/plain"
         )
 
     logger.info(f"收到流式问题: {query.question}")
     logger.info(f"Agent启用: {agent_enabled}")
 
-    # 1. 检索相关文档
-    logger.info(f"开始向量数据库检索，数量: {retrieval_k}")
-    docs = vectordb.similarity_search(query.question, k=retrieval_k)
+    # 1. 检索相关文档（异步）
+    logger.info(f"开始向量数据库检索 (异步)，数量: {retrieval_k}")
+    docs = await vectordb.asimilarity_search(query.question, k=retrieval_k)
 
     # 使用RAGContextBuilder记录调试信息
     context_builder = RAGContextBuilder(summarizer_llm)
@@ -167,17 +176,17 @@ async def chat_stream(query: Query):
 
     # 2. 检查是否使用Agent
     if agent_enabled and agent is not None:
-        logger.info("使用Agent模式（流式）...")
+        logger.info("使用Agent模式（异步流式）...")
         return StreamingResponse(
-            generate_agent_stream(agent, query.question, docs, summarizer_llm),
+            agenerate_agent_stream(agent, query.question, docs, summarizer_llm),
             media_type="text/plain"
         )
     else:
-        # 回退到原始模式（非Agent，为简单起见使用非流式）
-        logger.info("Agent不可用，使用非流式回退...")
+        # 回退到原始模式（非Agent，异步）
+        logger.info("Agent不可用，使用异步非流式回退...")
 
-        # 使用RAGContextBuilder构建上下文
-        processed_context = context_builder.build_context(
+        # 使用RAGContextBuilder构建上下文（异步）
+        processed_context = await context_builder.abuild_context(
             docs=docs,
             question=query.question,
             enable_summarization=True
@@ -194,11 +203,12 @@ async def chat_stream(query: Query):
             question=query.question
         )
 
-        response = llm.invoke(prompt)
+        # 异步调用 LLM
+        response = await llm.ainvoke(prompt)
         answer = response.content if hasattr(response, 'content') else str(response)
 
         return StreamingResponse(
-            iter([answer]),
+            single_result_generator(answer),
             media_type="text/plain"
         )
 

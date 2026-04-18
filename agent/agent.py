@@ -5,7 +5,7 @@ Agent 核心模块
 支持流式输出和非流式输出两种模式。
 """
 import json
-from typing import List, Any, Dict, Generator, Optional
+from typing import List, Any, Dict, Generator, Optional, AsyncGenerator
 from langchain.agents import create_agent
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_core.tools import Tool
@@ -13,7 +13,8 @@ from langchain_community.chat_models import ChatTongyi
 
 from utils.logger import get_logger
 from utils.config import Config
-from utils.summarizer import build_context, summarize_context, create_summarizer
+from utils.summarizer import build_context, summarize_context, asummarize_context, create_summarizer
+from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
 from .tools import ReadFile, SearchCode, RunCommand
 
 from langchain_chroma import Chroma
@@ -40,20 +41,13 @@ def load_system_prompts() -> str:
     Returns:
         系统提示词字符串
     """
-    return """你是 CodeMind Agent，一个专业的代码仓库智能助手。你的任务是基于提供的上下文信息和可用工具，帮助用户分析和理解代码仓库。
-
-## 可用工具
-你可以使用以下工具来帮助完成任务：
-1. ReadFile - 读取指定文件内容，支持行号范围
-2. SearchCode - 在代码库中搜索关键词或正则表达式
-3. RunCommand - 执行只读 shell 命令（如 ls, cat, grep, git 等）
-
-## 回答要求
-1. 如果答案在上下文中，请直接引用相关代码片段并给出详细解释
-2. 如果需要更多信息，可以使用工具来获取
-3. 回答要条理清晰，分点说明
-4. 对于代码相关问题，给出具体的代码示例或修改建议
-5. 请用中文回答"""
+    prompt_manager = PromptManager.get_instance()
+    prompt_template = prompt_manager.get_prompt(
+        scenario=PromptScenario.AGENT_SYSTEM,
+        language=PromptLanguage.ZH_CN
+    )
+    # AGENT_SYSTEM 提示词没有输入变量，直接返回模板字符串
+    return prompt_template.template
 
 
 class CodeMindAgent:
@@ -311,6 +305,179 @@ class CodeMindAgent:
             if summarized_context:
                 error_msg += f"\n\n以下是基于检索结果的总结：\n\n{summarized_context}"
             yield error_msg + "\n"
+
+    async def aexecute(
+        self,
+        question: str,
+        raw_docs: Optional[List[Any]] = None,
+        summarizer_llm: Optional[ChatTongyi] = None
+    ) -> Dict[str, Any]:
+        """
+        异步版本：非流式执行 Agent 任务。
+
+        Args:
+            question: 用户问题
+            raw_docs: 向量检索返回的原始文档列表（可选）
+            summarizer_llm: 总结模型实例（可选，提供 raw_docs 时必须提供）
+
+        Returns:
+            包含回答和来源的字典
+        """
+        logger.info(f"执行 Agent (异步非流式)，问题: {question}")
+
+        summarized_context = ""
+        if raw_docs is not None and summarizer_llm is not None:
+            # 步骤 1：从检索文档构建原始上下文
+            raw_context = build_context(raw_docs)
+            logger.debug("原始上下文已构建")
+
+            # 步骤 2：使用总结模块进行总结（异步）
+            logger.info("正在总结检索到的上下文 (异步)...")
+            summarized_context = await asummarize_context(question, raw_context, summarizer_llm)
+            logger.debug("上下文总结完成")
+
+        # 步骤 3：构建用户消息内容
+        user_message_content = self._build_user_message(question, summarized_context)
+
+        # Debug: 输出发送给 Agent 的提示词
+        logger.debug("=" * 80)
+        logger.debug("💬 发送给 Agent 的用户消息 (异步):")
+        logger.debug(user_message_content)
+        logger.debug("=" * 80)
+
+        # 步骤 4：运行 Agent（异步）
+        logger.info("正在调用 Agent (异步)...")
+        try:
+            response = await self.agent.ainvoke({
+                "messages": [
+                    {"role": "user", "content": user_message_content}
+                ]
+            })
+
+            logger.info("Agent 执行完成 (异步)")
+
+            # Debug: 输出 Agent 的完整返回结果
+            logger.debug("=" * 80)
+            logger.debug("🤖 Agent 完整返回结果 (异步):")
+            for i, msg in enumerate(response["messages"]):
+                role = msg.get("role", "unknown") if isinstance(msg, dict) else getattr(msg, "role", "unknown")
+                content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+                logger.debug(f"  [{i+1}] 角色: {role}")
+                logger.debug(f"  内容:\n{content}")
+                logger.debug("-" * 60)
+            logger.debug("=" * 80)
+
+            # 获取最终回答：messages 列表的最后一条
+            answer = response["messages"][-1].content
+
+            # Info: 输出最终答案
+            logger.info("=" * 80)
+            logger.info("✅ Agent 最终答案 (异步):")
+            logger.info(answer)
+            logger.info("=" * 80)
+
+            result = {
+                "answer": answer,
+                "summarized_context": summarized_context
+            }
+
+            if raw_docs is not None:
+                result["sources"] = [
+                    {
+                        "source": doc.metadata.get("source", "unknown"),
+                        "content": doc.page_content
+                    }
+                    for doc in raw_docs
+                ]
+
+            return result
+        except Exception as e:
+            logger.error(f"Agent 执行失败 (异步): {e}")
+            # 降级方案：如果 Agent 失败，使用总结后的上下文直接回答
+            logger.info("正在回退到总结上下文...")
+
+            result = {
+                "answer": f"Agent 执行遇到问题，以下是基于检索结果的总结：\n\n{summarized_context}",
+                "summarized_context": summarized_context,
+                "error": str(e)
+            }
+
+            if raw_docs is not None:
+                result["sources"] = [
+                    {
+                        "source": doc.metadata.get("source", "unknown"),
+                        "content": doc.page_content
+                    }
+                    for doc in raw_docs
+                ]
+
+            return result
+
+    async def aexecute_stream(
+        self,
+        question: str,
+        raw_docs: Optional[List[Any]] = None,
+        summarizer_llm: Optional[ChatTongyi] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        异步版本：流式执行 Agent 任务。
+
+        Args:
+            question: 用户问题
+            raw_docs: 向量检索返回的原始文档列表（可选）
+            summarizer_llm: 总结模型实例（可选，提供 raw_docs 时必须提供）
+            context: 附加上下文参数（可选）
+
+        Yields:
+            流式输出的内容片段
+        """
+        logger.info(f"执行 Agent (异步流式)，问题: {question}")
+
+        summarized_context = ""
+        if raw_docs is not None and summarizer_llm is not None:
+            # 步骤 1：从检索文档构建原始上下文
+            raw_context = build_context(raw_docs)
+            logger.debug("原始上下文已构建")
+
+            # 步骤 2：使用总结模块进行总结（异步）
+            logger.info("正在总结检索到的上下文 (异步)...")
+            summarized_context = await asummarize_context(question, raw_context, summarizer_llm)
+            logger.debug("上下文总结完成")
+
+        # 步骤 3：构建用户消息内容
+        user_message_content = self._build_user_message(question, summarized_context)
+
+        # Debug: 输出发送给 Agent 的提示词
+        logger.debug("=" * 80)
+        logger.debug("💬 发送给 Agent 的用户消息 (异步流式):")
+        logger.debug(user_message_content)
+        logger.debug("=" * 80)
+
+        # 步骤 4：流式运行 Agent（异步）
+        logger.info("正在启动 Agent 流 (异步)...")
+        try:
+            input_dict = {
+                "messages": [
+                    {"role": "user", "content": user_message_content}
+                ]
+            }
+
+            stream_context = context if context is not None else {}
+
+            async for chunk in self.agent.astream(input_dict, stream_mode="values", context=stream_context):
+                last_message = chunk["messages"][-1]
+                yield message_to_dict(last_message)
+
+            logger.info("Agent 流完成 (异步)")
+
+        except Exception as e:
+            logger.error(f"Agent 流执行失败 (异步): {e}")
+            # 降级方案：如果流式执行失败，返回错误信息
+            error_msg = f"Agent 流式执行遇到问题：{str(e)}"
+            if summarized_context:
+                error_msg += f"\n\n以下是基于检索结果的总结：\n\n{summarized_context}"
+            yield {"type": "error", "data": {"content": error_msg}}
 
 
 # 向后兼容的函数

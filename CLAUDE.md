@@ -4,11 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 ## 注意事项
 
+LangChain版本为1.x以上，注意使用新版本的api
+
 每次修改、添加或删除文件后，你都需要思考本次修改会对该项目带来什么影响，应该如何处理这种影响，比如需要增加gitignore还是需要其他动作之类的
 
 每次修改、添加或删除文件后，你都需要询问我是否需要同步修改相关文档，如果我回答是，你应该进行如下动作：
 
-- 同步修改项目根目录下learn_docs/phase02/下的所有教学文件（如果没有就创建，撰写教学文档时使用md格式，将phase01已经教学过的内容排除），且应注意不要描述为：修改了/新增了/删除了等等，而是将修改后的项目看作完整项目而修改教学文档
+- 同步修改项目根目录下learn_docs/phase03/下的所有教学文件（如果没有就创建，撰写教学文档时使用md格式，将phase01、phase02已经教学过的内容排除），且应注意不要描述为：修改了/新增了/删除了等等，而是将修改后的项目看作完整项目而修改教学文档
 
 - 在项目根目录下docs/文件夹中创建本次修改总结，以时间（精确到分）+修改总结命名。如果两次修改时间很接近（15min之内）就合并两次修改到一个文件中（这里的合并不是单纯的add,而是融合，也就是说，相对于第一次修改之前的版本，直到第二次修改修改了什么）
 
@@ -57,6 +59,8 @@ uvicorn app:app --reload
 | `utils/logger.py` | 单例日志工具 |
 | `utils/config.py` | 配置加载工具（config.yml + .env） |
 | `utils/summarizer.py` | 总结层模块，对检索结果进行总结提炼 |
+| `prompts/` | 提示词管理目录 |
+| `prompts/prompt_manager.py` | 提示词管理器，统一管理所有提示词 |
 | `agent/` | Agent 核心模块目录 |
 | `agent/agent.py` | Agent 创建与执行逻辑 |
 | `agent/security.py` | 安全检查模块（路径、文件、命令验证） |
@@ -103,12 +107,26 @@ uvicorn app:app --reload
 6. **LangChain @tool**: 使用 `@tool` 装饰器定义工具，通过 AgentExecutor 统一管理
 7. **安全检查**: 工具调用前进行路径、文件、命令三重安全验证
 8. **总结前置**: 总结模块在 Agent 执行前运行，减少 token 消耗
+9. **提示词统一管理**: 通过 `PromptManager` 单例统一管理所有提示词，支持版本控制和多语言
 
 ## 学习文档
 
-项目包含详细的学习文档，位于 `learn_docs/phase01/`：
-- 01-项目总览.md
-- 02-技术栈详解.md
-- 03-RAG原理入门.md
-- 04-代码结构解析.md
-- 05-快速上手指南.md
+项目包含详细的学习文档，位于 `learn_docs/` 目录：
+
+**Phase 01：基础架构**
+- `learn_docs/phase01/01-项目总览.md`
+- `learn_docs/phase01/02-技术栈详解.md`
+- `learn_docs/phase01/03-RAG原理入门.md`
+- `learn_docs/phase01/04-代码结构解析.md`
+- `learn_docs/phase01/05-快速上手指南.md`
+
+**Phase 02：Agent与高级功能**
+- `learn_docs/phase02/01-Agent原理入门.md`
+- `learn_docs/phase02/02-安全模块详解.md`
+- `learn_docs/phase02/03-Agent工具实现.md`
+- `learn_docs/phase02/04-Agent核心逻辑.md`
+- `learn_docs/phase02/05-完整集成与测试.md`
+- `learn_docs/phase02/06-架构优化进阶.md`
+
+**Phase 03：最新更新**
+- `learn_docs/phase03/`（包含最新的架构更新内容）

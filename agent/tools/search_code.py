@@ -147,3 +147,5 @@ def SearchCode(query: str, is_regex: bool = False, search_dir: str = ".") -> str
     except Exception as e:
         logger.error(f"Error in SearchCode: {e}")
         return f"[错误] 搜索失败: {str(e)}"
+
+

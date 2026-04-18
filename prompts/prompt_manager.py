@@ -19,6 +19,8 @@ class PromptScenario(Enum):
     ARCHITECTURE_DESIGN = "architecture_design"
     CODE_REVIEW = "code_review"
     GENERAL_QA = "general_qa"
+    AGENT_SYSTEM = "agent_system"      # Agent 系统提示词
+    SUMMARIZATION = "summarization"    # 总结提示词
 
 
 class PromptLanguage(Enum):
@@ -199,6 +201,52 @@ Now begin answering:""",
             created_at="2024-01-01"
         ))
 
+        # 中文Agent系统提示词
+        self._register_prompt(PromptVersion(
+            version="1.0.0",
+            scenario=PromptScenario.AGENT_SYSTEM,
+            language=PromptLanguage.ZH_CN,
+            template="""你是 CodeMind Agent，一个专业的代码仓库智能助手。你的任务是基于提供的上下文信息和可用工具，帮助用户分析和理解代码仓库。
+
+## 可用工具
+你可以使用以下工具来帮助完成任务：
+1. ReadFile - 读取指定文件内容，支持行号范围
+2. SearchCode - 在代码库中搜索关键词或正则表达式
+3. RunCommand - 执行只读 shell 命令（如 ls, cat, grep, git 等）
+
+## 回答要求
+1. 如果答案在上下文中，请直接引用相关代码片段并给出详细解释
+2. 如果需要更多信息，可以使用工具来获取
+3. 回答要条理清晰，分点说明
+4. 对于代码相关问题，给出具体的代码示例或修改建议
+5. 请用中文回答""",
+            input_variables=[],  # 系统提示词，无输入变量
+            description="Agent系统提示词（中文）",
+            created_at="2024-01-01"
+        ))
+
+        # 中文总结提示词
+        self._register_prompt(PromptVersion(
+            version="1.0.0",
+            scenario=PromptScenario.SUMMARIZATION,
+            language=PromptLanguage.ZH_CN,
+            template="""你是专注于"基于参考资料总结"的AI助手，需结合用户提问和向量检索到的参考资料，生成简洁准确的概括回答。
+
+### 输入信息
+1. 用户提问：{input}
+2. 参考资料(在下一个###之前内容均为参考资料)：{context}
+
+### 严格遵守以下约束（违反将导致回答无效）
+1. 内容合规：禁止包含违法、侵权、攻击性信息；
+2. 事实准确：回答必须完全基于参考资料中的信息，不编造、不添加未提及的内容，不做主观推断；
+3. 语言要求：仅用中文回答，语气客观、简洁，不冗余；
+4. 聚焦提问：严格围绕用户原始提问总结，不扩充问题范围、不额外追问、不构造新query；
+5. 格式要求：仅输出概括内容本身，以纯文本字符串形式呈现，不封装为字典、列表、JSON等任何结构，不附带额外说明。""",
+            input_variables=["input", "context"],
+            description="总结提示词（中文）",
+            created_at="2024-01-01"
+        ))
+
         logger.info("默认提示词模板初始化完成")
 
     def _register_prompt(self, prompt_version: PromptVersion) -> None:
@@ -271,6 +319,8 @@ Now begin answering:""",
                     PromptLanguage.ZH_CN,
                     "1.0.0"
                 )
+            # 使用回退的key
+            key = fallback_key
 
         prompt_version = self._prompts[key]
         logger.debug(f"使用提示词: {key}")
