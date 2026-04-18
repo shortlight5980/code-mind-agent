@@ -11,6 +11,7 @@ from utils.logger import get_logger
 from utils.config import Config
 from utils.summarizer import create_summarizer
 from agent.agent import CodeMindAgent
+from agent.tools import initialize_tool_service_manager
 
 logger = get_logger("service_manager")
 
@@ -63,6 +64,9 @@ class ServiceManager:
 
         # 初始化Agent
         self._init_agent()
+
+        # 初始化工具的服务管理器引用
+        initialize_tool_service_manager(self)
 
         self._initialized = True
         logger.info("所有服务初始化完成")

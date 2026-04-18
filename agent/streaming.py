@@ -1,3 +1,4 @@
+
 """
 Agent 流式处理模块
 
@@ -56,8 +57,7 @@ def process_chunk(chunk: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 async def agenerate_agent_stream(
         agent: CodeMindAgent,
-        question: str,
-        docs: list
+        question: str
 ) -> AsyncGenerator[str, None]:
     """
     生成 Agent 流式响应（真正异步版本）
@@ -67,7 +67,6 @@ async def agenerate_agent_stream(
     Args:
         agent: CodeMindAgent 实例
         question: 用户问题
-        docs: 检索到的文档
 
     Yields:
         SSE 格式的流式响应
@@ -75,7 +74,7 @@ async def agenerate_agent_stream(
     logger.info("启动真正的异步 Agent 流...")
 
     try:
-        async for chunk in agent.aexecute_stream(question, docs):
+        async for chunk in agent.aexecute_stream(question):
             # 处理 chunk
             message = process_chunk(chunk)
 
@@ -92,3 +91,4 @@ async def agenerate_agent_stream(
     except Exception as e:
         logger.error(f"异步流式生成失败: {e}")
         yield f"\n[Error] 异步流式生成失败: {str(e)}\n"
+
