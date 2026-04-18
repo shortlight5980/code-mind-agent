@@ -1,9 +1,6 @@
 import json
-import queue
 from contextlib import asynccontextmanager
-from typing import Dict, Any, AsyncGenerator
 
-import asyncio
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -12,7 +9,7 @@ from utils.logger import get_logger
 from services.service_manager import ServiceManager
 from rag.context_builder import RAGContextBuilder
 from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
-from agent.agent import CodeMindAgent
+from agent.streaming import generate_agent_stream
 
 logger = get_logger("app")
 
@@ -42,103 +39,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="CodeMind Agent API", lifespan=lifespan)
-
-
-async def generate_stream(
-    agent: CodeMindAgent,
-    question: str,
-    docs: list,
-    summarizer_llm
-) -> AsyncGenerator[str, None]:
-    """
-    生成流式响应内容
-
-    Args:
-        agent: CodeMindAgent实例
-        question: 用户问题
-        docs: 检索到的文档
-        summarizer_llm: 摘要模型
-
-    Yields:
-        流式内容块
-    """
-    # 使用Agent的流式输出
-
-    def process_chunk(chunk):
-        message: Dict[str, Any] = {}
-
-        if chunk["type"] == "human":
-            return ""
-
-        elif chunk["type"] == "ai":
-
-            message["type"] = "ai"
-            message["content"] = chunk["data"]["content"]
-            message["id"] = chunk["data"]["id"]
-
-            # 提取并简化 tool_calls
-            raw_tool_calls = chunk["data"].get("tool_calls", [])
-
-            simplified_tool_calls = []
-            for tc in raw_tool_calls:
-                simplified_tool_calls.append({
-                    "id": tc["id"],
-                    "name": tc["name"],
-                    "args": tc["args"]
-                })
-
-            message["tool_calls"] = simplified_tool_calls
-
-        elif chunk["type"] == "tool":
-            message["type"] = "tool"
-            message["content"] = chunk["data"]["content"]
-            message["tool_call_id"] = chunk["data"]["tool_call_id"]
-            message["name"] = chunk["data"]["name"]
-
-        return message
-
-    # 创建一个线程安全的队列，用于传递生成器产出的数据
-    data_queue = queue.Queue()
-
-    # 定义一个在独立线程中运行的函数
-    def run_sync_generator():
-        try:
-            for chunk in agent.execute_stream(question, docs, summarizer_llm):
-                # 将原始 chunk 放入队列
-                data_queue.put(chunk)
-        except Exception as e:
-            data_queue.put(e)  # 传递异常
-        finally:
-            data_queue.put(None)  # 结束信号
-
-    # 启动线程
-    loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, run_sync_generator)
-
-    # 异步从队列中拉取数据
-    while True:
-        # 使用 asyncio.to_thread 非阻塞地等待队列数据
-        item = await asyncio.to_thread(data_queue.get)
-
-        if item is None:
-            # 发送结束标志，很多前端SSE库靠这个判断结束
-            yield "data: [DONE]\n\n"
-            break  # 生成器结束
-
-        if isinstance(item, Exception):
-            logger.error(f"流式生成失败: {item}")
-            yield f"\n[Error] 流式生成失败: {str(item)}\n"
-            break
-
-        # 处理 chunk
-        message = process_chunk(item)
-
-        if message:
-            logger.info("+" * 20)
-            logger.info(f"[respons_message] {json.dumps(message, ensure_ascii=False)}")
-            logger.info("+" * 20)
-
-            yield f"data: {json.dumps(message, ensure_ascii=False)}\n\n"
 
 
 
@@ -269,7 +169,7 @@ async def chat_stream(query: Query):
     if agent_enabled and agent is not None:
         logger.info("使用Agent模式（流式）...")
         return StreamingResponse(
-            generate_stream(agent, query.question, docs, summarizer_llm),
+            generate_agent_stream(agent, query.question, docs, summarizer_llm),
             media_type="text/plain"
         )
     else:

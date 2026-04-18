@@ -9,9 +9,12 @@
 | 模块 | 文件 | 功能 |
 |------|------|------|
 | **Agent 核心** | `agent/agent.py` | Agent 创建与执行逻辑，集成 LangChain 1.0 新 API |
+| **流式处理** | `agent/streaming.py` | Agent 流式输出格式化和异步/同步桥接 |
 | **安全模块** | `agent/security.py` | 路径、文件、命令三重安全验证 |
 | **工具集** | `agent/tools/*.py` | ReadFile、SearchCode、RunCommand 三个工具 |
-| **提示词** | `agent/prompts.py` | Agent 专用提示词模板 |
+| **服务管理** | `services/service_manager.py` | 服务单例管理，统一管理所有服务生命周期 |
+| **RAG 上下文** | `rag/context_builder.py` | RAG 上下文构建、文档拼接、摘要压缩 |
+| **提示词管理** | `prompts/prompt_manager.py` | 提示词版本管理、多语言、多场景支持 |
 
 ## 阅读顺序
 
@@ -20,6 +23,7 @@
 3. **[03-Agent工具实现.md](./03-Agent工具实现.md)** - 逐个解析三个工具的实现
 4. **[04-Agent核心逻辑.md](./04-Agent核心逻辑.md)** - 深入 Agent 核心代码，了解 LangChain 1.0 API 迁移
 5. **[05-完整集成与测试.md](./05-完整集成与测试.md)** - 学习如何集成 Agent 并进行测试
+6. **[06-架构优化进阶.md](./06-架构优化进阶.md)** - 了解服务管理、RAG 上下文、提示词管理等架构优化
 
 ## 学习目标
 
@@ -29,6 +33,9 @@
 - ✅ 如何设计和实现安全检查机制
 - ✅ 如何使用 @tool 装饰器定义工具
 - ✅ 如何将 Agent 集成到现有系统中
+- ✅ 如何设计服务单例管理器
+- ✅ 如何封装 RAG 上下文处理逻辑
+- ✅ 如何管理提示词的版本和多场景
 
 ## 前置知识
 
