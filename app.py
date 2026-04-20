@@ -19,6 +19,7 @@ service_manager: ServiceManager
 
 class Query(BaseModel):
     question: str
+    history: list[dict]
 
 
 async def single_result_generator(text: str) -> AsyncGenerator[str, None]:
@@ -85,7 +86,7 @@ async def chat_stream(query: Query):
     # 使用Agent处理（Agent会自主决定何时使用检索工具）
     logger.info("使用Agent模式（异步流式）...")
     return StreamingResponse(
-        agenerate_agent_stream(agent, query.question),
+        agenerate_agent_stream(agent, query.question, query.history),
         media_type="text/plain"
     )
 

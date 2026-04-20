@@ -57,7 +57,8 @@ def process_chunk(chunk: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 async def agenerate_agent_stream(
         agent: CodeMindAgent,
-        question: str
+        question: str,
+        history: list[dict] = []
 ) -> AsyncGenerator[str, None]:
     """
     生成 Agent 流式响应（真正异步版本）
@@ -74,7 +75,7 @@ async def agenerate_agent_stream(
     logger.info("启动真正的异步 Agent 流...")
 
     try:
-        async for chunk in agent.aexecute_stream(question):
+        async for chunk in agent.aexecute_stream(question, history):
             # 处理 chunk
             message = process_chunk(chunk)
 

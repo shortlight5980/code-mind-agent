@@ -120,19 +120,19 @@ class CodeMindAgent:
         Returns:
             包含回答的字典
         """
-        logger.info(f"执行 Agent (异步非流式)，问题: {question}")
+        logger.info(f"执行 Agent，问题: {question}")
 
         # 构建用户消息内容
         user_message_content = self._build_user_message(question)
 
         # Debug: 输出发送给 Agent 的提示词
         logger.debug("=" * 80)
-        logger.debug("💬 发送给 Agent 的用户消息 (异步):")
+        logger.debug("💬 发送给 Agent 的用户消息 >:")
         logger.debug(user_message_content)
         logger.debug("=" * 80)
 
         # 运行 Agent（异步）
-        logger.info("正在调用 Agent (异步)...")
+        logger.info("正在调用 Agent >...")
         try:
             response = await self.agent.ainvoke({
                 "messages": [
@@ -140,11 +140,11 @@ class CodeMindAgent:
                 ]
             })
 
-            logger.info("Agent 执行完成 (异步)")
+            logger.info("Agent 执行完成 >")
 
             # Debug: 输出 Agent 的完整返回结果
             logger.debug("=" * 80)
-            logger.debug("🤖 Agent 完整返回结果 (异步):")
+            logger.debug("🤖 Agent 完整返回结果 >:")
             for i, msg in enumerate(response["messages"]):
                 role = msg.get("role", "unknown") if isinstance(msg, dict) else getattr(msg, "role", "unknown")
                 content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
@@ -158,7 +158,7 @@ class CodeMindAgent:
 
             # Info: 输出最终答案
             logger.info("=" * 80)
-            logger.info("✅ Agent 最终答案 (异步):")
+            logger.info("✅ Agent 最终答案 >:")
             logger.info(answer)
             logger.info("=" * 80)
 
@@ -167,7 +167,7 @@ class CodeMindAgent:
                 "agent_mode": True
             }
         except Exception as e:
-            logger.error(f"Agent 执行失败 (异步): {e}")
+            logger.error(f"Agent 执行失败 >: {e}")
             return {
                 "answer": f"Agent 执行遇到问题: {str(e)}",
                 "error": str(e)
@@ -176,6 +176,7 @@ class CodeMindAgent:
     async def aexecute_stream(
             self,
             question: str,
+            histoty: list[dict],
             context: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -200,12 +201,12 @@ class CodeMindAgent:
         logger.debug("=" * 80)
 
         # 流式运行 Agent（异步）
-        logger.info("正在启动 Agent 流 (异步)...")
+        logger.info("正在启动 Agent 流 >...")
         try:
+            messages = histoty.append({"role": "user", "content": user_message_content})
+
             input_dict = {
-                "messages": [
-                    {"role": "user", "content": user_message_content}
-                ]
+                "messages": messages
             }
 
             stream_context = context if context is not None else {}
@@ -214,10 +215,10 @@ class CodeMindAgent:
                 last_message = chunk["messages"][-1]
                 yield message_to_dict(last_message)
 
-            logger.info("Agent 流完成 (异步)")
+            logger.info("Agent 流完成 >")
 
         except Exception as e:
-            logger.error(f"Agent 流执行失败 (异步): {e}")
+            logger.error(f"Agent 流执行失败 >: {e}")
             error_msg = f"Agent 流式执行遇到问题：{str(e)}"
             yield {"type": "error", "data": {"content": error_msg}}
 
