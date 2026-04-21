@@ -56,11 +56,13 @@ async def chat(query: Query):
         return {"answer": "服务未初始化，请检查Agent配置"}
 
     logger.info(f"收到问题: {query.question}")
+    logger.info(f"历史消息数量: {len(query.history)}")
 
     # 使用Agent处理（Agent会自主决定何时使用检索工具）
     logger.info("使用Agent模式（异步非流式）...")
     result = await agent.aexecute(
-        question=query.question
+        question=query.question,
+        history=query.history
     )
 
     return {

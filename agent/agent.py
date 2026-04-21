@@ -107,15 +107,18 @@ class CodeMindAgent:
         """
         return question
 
+
     async def aexecute(
             self,
-            question: str
+            question: str,
+            history: list[dict] = []
     ) -> Dict[str, Any]:
         """
         异步版本：非流式执行 Agent 任务。
 
         Args:
             question: 用户问题
+            history: 历史消息列表
 
         Returns:
             包含回答的字典
@@ -125,19 +128,25 @@ class CodeMindAgent:
         # 构建用户消息内容
         user_message_content = self._build_user_message(question)
 
+        # 前端已转换role格式为user/assistant，直接使用
+        processed_history = history
+
         # Debug: 输出发送给 Agent 的提示词
         logger.debug("=" * 80)
         logger.debug("💬 发送给 Agent 的用户消息 >:")
         logger.debug(user_message_content)
+        logger.debug(f"📜 历史消息数量: {len(processed_history)}")
         logger.debug("=" * 80)
+
+        # 构建完整的消息列表
+        messages = processed_history.copy()
+        messages.append({"role": "user", "content": user_message_content})
 
         # 运行 Agent（异步）
         logger.info("正在调用 Agent >...")
         try:
             response = await self.agent.ainvoke({
-                "messages": [
-                    {"role": "user", "content": user_message_content}
-                ]
+                "messages": messages
             })
 
             logger.info("Agent 执行完成 >")
@@ -176,7 +185,7 @@ class CodeMindAgent:
     async def aexecute_stream(
             self,
             question: str,
-            histoty: list[dict],
+            history: list[dict] = [],
             context: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -184,6 +193,7 @@ class CodeMindAgent:
 
         Args:
             question: 用户问题
+            history: 历史消息列表
             context: 附加上下文参数（可选）
 
         Yields:
@@ -194,16 +204,22 @@ class CodeMindAgent:
         # 构建用户消息内容
         user_message_content = self._build_user_message(question)
 
+        # 前端已转换role格式为user/assistant，直接使用
+        processed_history = history
+
         # Debug: 输出发送给 Agent 的提示词
         logger.debug("=" * 80)
         logger.debug("💬 发送给 Agent 的用户消息 (异步流式):")
         logger.debug(user_message_content)
+        logger.debug(f"📜 历史消息数量: {len(processed_history)}")
         logger.debug("=" * 80)
 
         # 流式运行 Agent（异步）
         logger.info("正在启动 Agent 流 >...")
         try:
-            messages = histoty.append({"role": "user", "content": user_message_content})
+            # 构建完整的消息列表
+            messages = processed_history.copy()
+            messages.append({"role": "user", "content": user_message_content})
 
             input_dict = {
                 "messages": messages
