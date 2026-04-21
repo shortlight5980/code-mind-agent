@@ -26,7 +26,9 @@ def process_chunk(chunk: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     message: Dict[str, Any] = {}
 
     if chunk["type"] == "human":
-        return None
+        message["type"] = "human"
+        message["content"] = chunk["data"]["content"]
+        return message
 
     elif chunk["type"] == "ai":
         message["type"] = "ai"
@@ -49,8 +51,8 @@ def process_chunk(chunk: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     elif chunk["type"] == "tool":
         message["type"] = "tool"
         message["content"] = chunk["data"]["content"]
-        message["tool_call_id"] = chunk["data"]["tool_call_id"]
-        message["name"] = chunk["data"]["name"]
+        message["tool_call_id"] = chunk["data"].get("tool_call_id", "")
+        message["name"] = chunk["data"].get("name", "")
 
     return message if message else None
 
@@ -72,17 +74,20 @@ async def agenerate_agent_stream(
     Yields:
         SSE 格式的流式响应
     """
-    logger.info("启动真正的异步 Agent 流...")
+    logger.info("启动异步 Agent 流...")
 
     try:
         async for chunk in agent.aexecute_stream(question, history):
-            # 处理 chunk
-            message = process_chunk(chunk)
+            # # 处理 chunk
+            # message = process_chunk(chunk)
+            message = chunk
 
             if message:
                 logger.info("+" * 20)
                 logger.info(f"[response_message] {json.dumps(message, ensure_ascii=False)}")
                 logger.info("+" * 20)
+
+            # yield json.dumps(message, ensure_ascii=False)
 
                 yield f"data: {json.dumps(message, ensure_ascii=False)}\n\n"
 

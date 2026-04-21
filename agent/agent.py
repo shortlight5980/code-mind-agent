@@ -16,9 +16,33 @@ from utils.config import Config
 from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
 from .tools import ReadFile, SearchCode, RunCommand, RetrieveAndSummarize
 
-from langchain_core.messages import message_to_dict
+from langchain_core.messages import (
+    message_to_dict,
+    HumanMessage,
+    AIMessage,
+    ToolMessage, messages_from_dict
+)
 
 logger = get_logger("agent.core")
+
+
+def _process_history(history: list[dict]) -> list:
+    """
+    处理历史记录，转换为 LangChain 消息对象。
+
+    Args:
+        history: 原始历史记录列表
+
+    Returns:
+        处理后的 LangChain 消息对象列表
+    """
+    try:
+        processed = messages_from_dict(history)
+        return processed
+
+    except Exception as e:
+        logger.error(f"历史消息转换错误！")
+        return []
 
 
 def get_tools() -> List[Tool]:
@@ -128,8 +152,8 @@ class CodeMindAgent:
         # 构建用户消息内容
         user_message_content = self._build_user_message(question)
 
-        # 前端已转换role格式为user/assistant，直接使用
-        processed_history = history
+        # 处理历史记录，从 content1 中提取 content2
+        processed_history = _process_history(history)
 
         # Debug: 输出发送给 Agent 的提示词
         logger.debug("=" * 80)
@@ -140,7 +164,7 @@ class CodeMindAgent:
 
         # 构建完整的消息列表
         messages = processed_history.copy()
-        messages.append({"role": "user", "content": user_message_content})
+        messages.append(HumanMessage(content=user_message_content))
 
         # 运行 Agent（异步）
         logger.info("正在调用 Agent >...")
@@ -204,8 +228,8 @@ class CodeMindAgent:
         # 构建用户消息内容
         user_message_content = self._build_user_message(question)
 
-        # 前端已转换role格式为user/assistant，直接使用
-        processed_history = history
+        # 处理历史记录，从 content1 中提取 content2
+        processed_history = _process_history(history)
 
         # Debug: 输出发送给 Agent 的提示词
         logger.debug("=" * 80)
@@ -219,7 +243,7 @@ class CodeMindAgent:
         try:
             # 构建完整的消息列表
             messages = processed_history.copy()
-            messages.append({"role": "user", "content": user_message_content})
+            messages.append(HumanMessage(content=user_message_content))
 
             input_dict = {
                 "messages": messages

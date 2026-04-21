@@ -56,6 +56,7 @@ async def chat(query: Query):
         return {"answer": "服务未初始化，请检查Agent配置"}
 
     logger.info(f"收到问题: {query.question}")
+    logger.debug(f"具体请求为：{query}")
     logger.info(f"历史消息数量: {len(query.history)}")
 
     # 使用Agent处理（Agent会自主决定何时使用检索工具）
@@ -83,7 +84,9 @@ async def chat_stream(query: Query):
             media_type="text/plain"
         )
 
-    logger.info(f"收到流式问题: {query.question}")
+    logger.info(f"收到问题: {query.question}")
+    logger.debug(f"具体请求为：{query}")
+    logger.info(f"历史消息数量: {len(query.history)}")
 
     # 使用Agent处理（Agent会自主决定何时使用检索工具）
     logger.info("使用Agent模式（异步流式）...")
