@@ -4,7 +4,7 @@ chroma:
   persist_dir: "./chroma_db"
   chunk_size: 800
   chunk_overlap: 100
-  retrieval_k: 7
+  retrieval_k: 10
 
 # 被索引的代码仓库路径（用于 Agent 工具查找文件）
 repo:

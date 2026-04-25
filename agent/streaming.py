@@ -4,8 +4,10 @@ Agent 流式处理模块
 
 负责 Agent 流式输出的消息格式化和异步/同步桥接逻辑
 """
+import asyncio
 import json
 from typing import Dict, Any, AsyncGenerator, Optional
+from urllib.request import Request
 
 from utils.logger import get_logger
 from .agent import CodeMindAgent
@@ -60,6 +62,7 @@ def process_chunk(chunk: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 async def agenerate_agent_stream(
         agent: CodeMindAgent,
         question: str,
+        request: Request,
         history: list[dict] = []
 ) -> AsyncGenerator[str, None]:
     """
@@ -81,6 +84,11 @@ async def agenerate_agent_stream(
             # # 处理 chunk
             # message = process_chunk(chunk)
             message = chunk
+
+            task = asyncio.current_task()
+            if await request.is_disconnected():
+                logger.info("客户端断开连接，停止生成")
+                break
 
             if message:
                 logger.info("+" * 20)

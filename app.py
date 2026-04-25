@@ -2,6 +2,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from urllib.request import Request
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
@@ -74,7 +75,7 @@ async def chat(query: Query):
 
 
 @app.post("/chat/stream")
-async def chat_stream(query: Query):
+async def chat_stream(query: Query, request: Request):
     """问答接口，使用Agent模式（流式，真正异步）"""
     agent = service_manager.agent
 
@@ -91,7 +92,7 @@ async def chat_stream(query: Query):
     # 使用Agent处理（Agent会自主决定何时使用检索工具）
     logger.info("使用Agent模式（异步流式）...")
     return StreamingResponse(
-        agenerate_agent_stream(agent, query.question, query.history),
+        agenerate_agent_stream(agent, query.question, request, query.history),
         media_type="text/plain"
     )
 
