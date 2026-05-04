@@ -66,6 +66,12 @@ async def RetrieveAndSummarize(question: str) -> str:
     try:
         # 步骤1: 向量检索
         logger.info(f"开始向量数据库检索，数量: {retrieval_k}")
+        # TODO
+        """
+        第一步：Query优化
+        •Query Rewriting：把用户的问题改写成更适合检索的形式•Query Decomposition：把复杂问题拆成几个子问题•HyDE：先让LLM生成一个假设性的答案，再用这个答案去检索
+        """
+
         docs = await vectordb.asimilarity_search(question, k=retrieval_k)
 
         if not docs:

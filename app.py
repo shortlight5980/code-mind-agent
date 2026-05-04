@@ -2,9 +2,8 @@
 import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-from urllib.request import Request
+from fastapi import FastAPI, Request
 
-from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 

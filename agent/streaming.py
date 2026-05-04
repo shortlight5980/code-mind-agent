@@ -7,7 +7,7 @@ Agent 流式处理模块
 import asyncio
 import json
 from typing import Dict, Any, AsyncGenerator, Optional
-from urllib.request import Request
+from fastapi import Request
 
 from utils.logger import get_logger
 from .agent import CodeMindAgent
