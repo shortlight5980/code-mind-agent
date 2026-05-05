@@ -3,6 +3,7 @@
 负责所有服务对象（vectordb、llm、summarizer_llm、agent）的创建、配置和生命周期管理
 """
 from typing import Dict, Any, Optional
+from handler.DashScopeTokenHandler import DashscopeTokenHandler
 from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_community.chat_models import ChatTongyi
@@ -102,8 +103,7 @@ class ServiceManager:
         logger.info(f"初始化主LLM: {llm_model}")
 
         llm = ChatTongyi(
-            model=llm_model,
-            temperature=llm_temperature,
+            model=llm_model
         )
 
         self._services["llm"] = llm

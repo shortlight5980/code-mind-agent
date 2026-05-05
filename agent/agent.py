@@ -5,12 +5,13 @@ Agent 核心模块
 负责创建和运行 CodeMind Agent，集成工具调用。
 支持流式输出和非流式输出两种模式。
 """
-import json
 from typing import List, Any, Dict, Optional, AsyncGenerator
 from langchain.agents import create_agent
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.tools import Tool
 from langchain_community.chat_models import ChatTongyi
 
+from handler.DashScopeTokenHandler import DashscopeTokenHandler
 from utils.logger import get_logger
 from utils.config import Config
 from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
@@ -100,8 +101,7 @@ class CodeMindAgent:
 
         # 初始化 LLM
         self.chat_model = ChatTongyi(
-            model=model,
-            temperature=temperature,
+            model=model
         )
 
         # 获取工具列表
@@ -251,7 +251,7 @@ class CodeMindAgent:
 
             stream_context = context if context is not None else {}
 
-            async for chunk in self.agent.astream(input_dict, stream_mode="values", context=stream_context):
+            async for chunk in self.agent.astream(input_dict, stream_mode="values", context=stream_context, config={"callbacks": [UsageMetadataCallbackHandler()]}):
                 last_message = chunk["messages"][-1]
                 yield message_to_dict(last_message)
 

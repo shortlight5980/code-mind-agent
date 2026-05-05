@@ -5,6 +5,9 @@
 避免将过多原始文档直接传给主 LLM。
 """
 from typing import List
+
+from langchain_core.callbacks import UsageMetadataCallbackHandler
+
 from langchain_core.prompts import PromptTemplate
 from langchain_community.chat_models import ChatTongyi
 
@@ -91,7 +94,7 @@ async def asummarize_context(question: str, context_or_docs, summarizer_llm: Cha
     logger.debug("=" * 80)
 
     logger.info("正在调用总结模型 (异步)...")
-    response = await summarizer_llm.ainvoke(prompt)
+    response = await summarizer_llm.ainvoke(prompt, config={"callbacks": [UsageMetadataCallbackHandler()]})
     summary = response.content if hasattr(response, 'content') else str(response)
 
     # Debug: 输出总结模型的返回结果
@@ -117,6 +120,5 @@ def create_summarizer(model: str = "qwen-max", temperature: float = 0.1) -> Chat
     """
     logger.info(f"Creating summarizer LLM: model={model}, temperature={temperature}")
     return ChatTongyi(
-        model=model,
-        temperature=temperature,
+        model=model
     )

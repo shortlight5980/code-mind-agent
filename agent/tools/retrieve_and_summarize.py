@@ -42,6 +42,9 @@ async def RetrieveAndSummarize(question: str) -> str:
     Returns:
         总结精炼后的参考资料上下文
     """
+
+    # TODO: 混合检索：向量检索+BM25检索
+
     logger.info(f"[ToolsCall] RetrieveAndSummarize called: question={question}")
 
     if _service_manager is None:
