@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 LangChain版本为1.x以上，注意使用新版本的api
 
+本项目的 Python 服务需要使用 conda 虚拟环境，环境名为 `AI`。运行脚本、启动服务或执行测试前，先执行 `conda activate AI`。
+
 每次修改、添加或删除文件后，你都需要思考本次修改会对该项目带来什么影响，应该如何处理这种影响，比如需要增加gitignore还是需要其他动作之类的
 
 每次修改、添加或删除文件后，你都需要询问我是否需要同步修改相关文档，如果我回答是，你应该进行如下动作：

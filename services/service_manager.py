@@ -3,7 +3,6 @@
 负责所有服务对象（vectordb、llm、summarizer_llm、agent）的创建、配置和生命周期管理
 """
 from typing import Dict, Any, Optional
-from handler.DashScopeTokenHandler import DashscopeTokenHandler
 from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_community.chat_models import ChatTongyi
@@ -75,7 +74,7 @@ class ServiceManager:
     def _init_vectordb(self) -> None:
         """初始化向量数据库"""
         persist_dir = Config.get("chroma.persist_dir", "./chroma_db")
-        embedding_model = Config.get("embeddings.model", "text-embedding-v3")
+        embedding_model = Config.get("embeddings.model", "text-embedding-v4")
         retrieval_k = Config.get("chroma.retrieval_k", 7)
 
         logger.info(f"加载向量数据库: {persist_dir}")

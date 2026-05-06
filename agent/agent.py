@@ -11,7 +11,6 @@ from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.tools import Tool
 from langchain_community.chat_models import ChatTongyi
 
-from handler.DashScopeTokenHandler import DashscopeTokenHandler
 from utils.logger import get_logger
 from utils.config import Config
 from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
@@ -20,8 +19,7 @@ from .tools import ReadFile, SearchCode, RunCommand, RetrieveAndSummarize
 from langchain_core.messages import (
     message_to_dict,
     HumanMessage,
-    AIMessage,
-    ToolMessage, messages_from_dict
+    messages_from_dict
 )
 
 logger = get_logger("agent.core")

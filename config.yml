@@ -1,17 +1,17 @@
 # CodeMind Agent Configuration
 
 chroma:
-  persist_dir: "./chroma_db"
+  persist_dir: "../chroma_db"
   chunk_size: 800
   chunk_overlap: 100
-  retrieval_k: 10
+  retrieval_k: 20
 
 # 被索引的代码仓库路径（用于 Agent 工具查找文件）
 repo:
-  path: "C:/Users/14144/Desktop/CodeMindAgentClient"
+  path: "C:/Users/14144/Desktop/CodeMind/CodeMindAgent"
 
 embeddings:
-  model: "text-embedding-v3"
+  model: "text-embedding-v4"
 
 llm:
   model: "qwen-max"
