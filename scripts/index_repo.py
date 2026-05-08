@@ -19,6 +19,123 @@ from utils.config import Config
 
 logger = get_logger("indexer")
 
+supported_exts = ('.py', '.java', '.js', '.ts', '.go', '.md', '.txt')
+
+# Directories to exclude
+exclude_dirs = {
+    # 版本控制系统目录
+    '.git', '.svn', '.hg', '.bzr', '_darcs', 'CVS',
+
+    # Python 相关
+    '__pycache__', '.pytest_cache', '.mypy_cache', '.tox', '.nox',
+    'venv', '.venv', 'env', '.env', 'virtualenv',
+    '*.egg-info', '.eggs', 'dist', 'build', 'eggs',
+
+    # Node.js / JavaScript 相关
+    'node_modules', 'bower_components', 'npm-debug.log*', 'yarn-debug.log*', 'yarn-error.log*',
+    '.npm', '.yarn-integrity', '.parcel-cache',
+
+    # Java / JVM 相关
+    'target', 'bin', 'out', '.gradle', 'build', '.idea', '.classpath', '.project', '.settings',
+
+    # Go 相关
+    'vendor',
+
+    # Rust 相关
+    'target',
+
+    # C/C++ 相关
+    'Debug', 'Release', 'x64', 'x86', 'ipch', '.vs',
+
+    # IDE 和编辑器配置/临时目录
+    '.idea', '.vscode', '.eclipse', '.metadata', '.repl_history',
+    '*.swp', '*.swo', '*~', '#*#', '.DS_Store', 'Thumbs.db',
+
+    # 数据库和缓存
+    'chroma_db', 'logs', 'log', 'tmp', 'temp', '.cache',
+
+    # 其他常见构建/依赖目录
+    'packages', '.next', 'nuxt', '.nuxt', '.output',
+    '.terraform', '.serverless',
+}
+
+# Files to exclude (exact names or patterns)
+exclude_files = {
+    # 依赖锁定文件 (Dependency Lock Files)
+    'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'poetry.lock', 'Pipfile.lock', 'requirements.txt',
+    'composer.lock', 'Gemfile.lock', 'Podfile.lock', 'Cartfile.resolved',
+    'go.sum', 'Cargo.lock', 'mix.lock',
+
+    # 环境与配置文件 (Environment & Config Files)
+    '.env', '.env.local', '.env.production', '.env.development',
+    '.gitignore', '.dockerignore', '.npmignore',
+
+    # 项目元数据与配置 (Project Metadata & Config)
+    'tsconfig.json', 'jsconfig.json', 'webpack.config.js',
+    'vite.config.ts', 'babel.config.js', '.eslintrc.json',
+    '.prettierrc', 'Makefile', 'Dockerfile', 'docker-compose.yml',
+
+    # 文档与说明 (Documentation)
+    'LICENSE', 'README.md', 'CHANGELOG.md', 'CONTRIBUTING.md',
+    'CODE_OF_CONDUCT.md', 'SECURITY.md',
+}
+
+# File extensions/patterns to exclude
+exclude_file_patterns = {
+    # IDE 和编辑器配置/临时文件
+    '*.iml', '.idea/*', '.vscode/*', '*.swp', '*.swo', '*~', '#*#',
+
+    # 日志和数据库文件
+    '*.log', '*.db', '*.sqlite', '*.sqlite3',
+
+    # 文档和办公文件
+    '*.pdf', '*.doc', '*.docx', '*.xls', '*.xlsx', '*.ppt', '*.pptx', '*.csv', '*.tsv',
+
+    # 压缩和归档文件
+    '*.zip', '*.rar', '*.7z', '*.tar', '*.gz', '*.bz2', '*.iso', '*.dmg', '*.pkg', '*.deb', '*.rpm', '*.whl', '*.egg',
+
+    # 环境变量和敏感信息
+    '.env.*', '*.key', '*.pem', '*.crt', '*.cer', '*.pfx', '*.p12',
+
+    # 图片和多媒体文件
+    '*.jpg', '*.png', '*.svg', '*.gif', '*.bmp', '*.ico', '*.tiff', '*.webp',
+    '*.mp3', '*.mp4', '*.avi', '*.mov', '*.wmv', '*.flv', '*.wav', '*.aac',
+
+    # 可执行文件和二进制库
+    '*.exe', '*.dll', '*.so', '*.dylib', '*.bin', '*.o', '*.obj', '*.node',
+
+    # Python 编译文件和包
+    '*.pyc', '*.pyo', '*.pyd', '__pycache__/*', '*.egg-info/*', '*.coverage',
+
+    # Java/JVM 编译文件和包
+    '*.class', '*.jar', '*.war', '*.ear',
+
+    # 数据科学和机器学习模型/数据
+    '*.npy', '*.npz', '*.pickle', '*.pkl', '*.model', '*.h5', '*.pb', '*.onnx', '*.pt', '*.pth', '*.ckpt',
+    '*.parquet', '*.avro', '*.orc',
+
+    # 字体文件
+    '*.woff', '*.woff2', '*.ttf', '*.eot', '*.otf',
+
+    # 系统隐藏文件和锁文件
+    '*.DS_Store', 'Thumbs.db', '*.lock', '*.pid', '*.sock',
+
+    # 网络抓包和转储文件
+    '*.pcap', '*.dump'
+}
+
+def should_exclude_file(filename: str) -> bool:
+    """检查是否应该根据名称或模式排除文件"""
+    if filename in exclude_files:
+        return True
+
+    for pattern in exclude_file_patterns:
+        if fnmatch.fnmatch(filename, pattern):
+            return True
+
+    return False
+
 
 def extract_python_classes_and_functions(content: str, max_class_length: int = 3000):
     """
@@ -336,41 +453,6 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
     embedding_model = Config.get("embeddings.model", "text-embedding-v4")
 
     all_chunks = []
-    supported_exts = ('.py', '.java', '.js', '.ts', '.go', '.md', '.txt')
-
-    # Directories to exclude
-    exclude_dirs = {
-        'node_modules', '__pycache__', '.git', '.svn', '.hg',
-        'dist', 'build', 'target', 'venv', '.venv', 'env',
-        'vendor', 'bower_components', 'chroma_db', 'logs',
-        '.idea', '.pytest_cache', '.understand-anything'
-    }
-
-    # Files to exclude (exact names or patterns)
-    exclude_files = {
-        'package-lock.json', 'yarn.lock', 'poetry.lock', 'Pipfile.lock',
-        'composer.lock', 'Gemfile.lock', 'Podfile.lock',
-        '.env',
-    }
-    
-    # File extensions/patterns to exclude
-    exclude_file_patterns = [
-        '*.iml', '*.log', '*.db', '*.sqlite', '*.sqlite3',
-        '*.pdf', '*.doc', '*.docx', '*.xls', '*.xlsx',
-        '*.ppt', '*.pptx', '*.zip', '*.rar', '*.7z',
-        '*.tar', '*.gz', '*.bz2', '.env.*', '*.log'
-    ]
-
-    def should_exclude_file(filename: str) -> bool:
-        """检查是否应该根据名称或模式排除文件"""
-        if filename in exclude_files:
-            return True
-
-        for pattern in exclude_file_patterns:
-            if fnmatch.fnmatch(filename, pattern):
-                return True
-
-        return False
 
     logger.info(f"Starting repository scan: {repo_path}")
 
