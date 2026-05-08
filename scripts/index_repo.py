@@ -286,13 +286,8 @@ def _fallback_split_class_by_methods(class_content: str, class_indent: str):
 def split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 3000):
     """
     根据智能边界分割代码。
-
-    对于 Python：使用特殊的类感知分割策略
-    对于其他语言：回退到简单的模式分割
+    re模式分割
     """
-    if file_ext == '.py':
-        return extract_python_classes_and_functions(content, max_class_length)
-
     # 针对其他语言的简单基于模式的分割策略
     # 定义不同编程语言的代码块分割正则表达式模式
     # 使用正向先行断言 (?=...) 在匹配换行符的同时，确保后续内容符合特定语法结构的开头
@@ -315,7 +310,7 @@ def split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 30
         return [block.strip() for block in blocks if block.strip()]
 
     else:
-        return []
+        return [content]
 
 
 def index_repo(repo_path: str = None, persist_dir: str = None):
@@ -334,7 +329,8 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
     if persist_dir is None:
         persist_dir = Config.get("chroma.persist_dir", "../chroma_db")
 
-    chunk_size = Config.get("chroma.chunk_size", 800)
+    chunk_size_doc = Config.get("chroma.chunk_size.doc", 800)
+    chunk_size_code = Config.get("chroma.chunk_size.code", 2000)
     chunk_overlap = Config.get("chroma.chunk_overlap", 100)
     max_class_length = Config.get("splitting.max_class_length", 3000)
     embedding_model = Config.get("embeddings.model", "text-embedding-v4")
@@ -347,7 +343,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
         'node_modules', '__pycache__', '.git', '.svn', '.hg',
         'dist', 'build', 'target', 'venv', '.venv', 'env',
         'vendor', 'bower_components', 'chroma_db', 'logs',
-        '.idea', '.pytest_cache'
+        '.idea', '.pytest_cache', '.understand-anything'
     }
 
     # Files to exclude (exact names or patterns)
@@ -398,26 +394,29 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
                         if not doc.page_content.strip():
                             continue
                         ext = os.path.splitext(file)[1]
-                        blocks = split_by_code_blocks(doc.page_content, ext, max_class_length)
-                        if not blocks:
-                            # 是普通文档或不支持的语言类型，使用文档切割器
-                            splitter = RecursiveCharacterTextSplitter(
-                                chunk_size=chunk_size,
-                                chunk_overlap=chunk_overlap
-                            )
-                            chunks = splitter.create_documents(
-                                [doc.page_content.strip()],
-                                metadatas=[{"source": file_path}]
-                            )
-                            all_chunks.extend(chunks)
-                        else:
+                        if ext == '.py':
+                            blocks = extract_python_classes_and_functions(doc.page_content, max_class_length)
                             for block in blocks:
                                 if block.strip():
                                     chunk = Document(
                                         page_content=block,
-                                        metadata={"source": file_path}
+                                        metadata={"source": file_path, "type": "code"}
                                     )
                                     all_chunks.append(chunk)
+                        else:
+                            blocks = split_by_code_blocks(doc.page_content, ext, max_class_length)
+
+                            for block in blocks:
+                                splitter = RecursiveCharacterTextSplitter(
+                                    chunk_size=chunk_size_code,
+                                    chunk_overlap=chunk_overlap
+                                )
+                                chunks = splitter.create_documents(
+                                    [block],
+                                    metadatas=[{"source": file_path, "type": "doc"}]
+                                )
+                                all_chunks.extend(chunks)
+
                 except Exception as e:
                     logger.warning(f"Skipping file {file_path}: {e}")
 
@@ -432,13 +431,14 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
                     docs = loader.load()
 
                     for doc in docs:
+                        # 是普通文档或不支持的语言类型，使用文档切割器
                         splitter = RecursiveCharacterTextSplitter(
-                            chunk_size=chunk_size,
+                            chunk_size=chunk_size_doc,
                             chunk_overlap=chunk_overlap
                         )
                         chunks = splitter.create_documents(
-                            [doc.page_content],
-                            metadatas=[{"source": file_path}]
+                            [doc.page_content.strip()],
+                            metadatas=[{"source": file_path, "type": "doc"}]
                         )
                         all_chunks.extend(chunks)
 

@@ -75,7 +75,7 @@ class ServiceManager:
         """初始化向量数据库"""
         persist_dir = Config.get("chroma.persist_dir", "./chroma_db")
         embedding_model = Config.get("embeddings.model", "text-embedding-v4")
-        retrieval_k = Config.get("chroma.retrieval_k", 7)
+        retrieval_k = Config.get("chroma.retrieval_k", {"docs": 5, "codes": 10})
 
         logger.info(f"加载向量数据库: {persist_dir}")
 
@@ -191,4 +191,4 @@ class ServiceManager:
     @property
     def retrieval_k(self) -> int:
         """检索数量配置"""
-        return self._services.get("retrieval_k", 7)
+        return self._services.get("retrieval_k", {"docs": 5, "codes": 10})
