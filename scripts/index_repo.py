@@ -326,7 +326,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
         repo_path = Config.get("repo.path", ".")
 
     if persist_dir is None:
-        persist_dir = Config.get("chroma.persist_dir", "./chroma_db")
+        persist_dir = Config.get("chroma.persist_dir", "../chroma_db")
 
     chunk_size = Config.get("chroma.chunk_size", 800)
     chunk_overlap = Config.get("chroma.chunk_overlap", 100)
@@ -340,7 +340,8 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
     exclude_dirs = {
         'node_modules', '__pycache__', '.git', '.svn', '.hg',
         'dist', 'build', 'target', 'venv', '.venv', 'env',
-        'vendor', 'bower_components', 'chroma_db', 'logs'
+        'vendor', 'bower_components', 'chroma_db', 'logs',
+        '.idea', '.pytest_cache'
     }
 
     # Files to exclude (exact names or patterns)
@@ -392,6 +393,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
                         blocks = split_by_code_blocks(doc.page_content, ext, max_class_length)
                         for block in blocks:
                             if block.strip():
+                                # TODO: 代码文件不继续拆分
                                 # 具有上下文重叠的细粒度拆分
                                 splitter = RecursiveCharacterTextSplitter(
                                     chunk_size=chunk_size,
@@ -435,7 +437,6 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
 
     logger.info(f"Total {len(all_chunks)} code chunks, starting vectorization...")
 
-    # Use Alibaba Bailian embedding model
     api_key = Config.get_env("DASHSCOPE_API_KEY")
     if not api_key:
         logger.error("DASHSCOPE_API_KEY not found in environment variables")

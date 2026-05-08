@@ -1,7 +1,7 @@
 # CodeMind Agent Configuration
 
 chroma:
-  persist_dir: "../chroma_db"
+  persist_dir: "./chroma_db"
   chunk_size: 800
   chunk_overlap: 100
   retrieval_k: 20
