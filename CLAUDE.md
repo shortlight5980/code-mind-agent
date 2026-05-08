@@ -1,114 +1,100 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 注意事项
+## Common Commands
 
-LangChain版本为1.x以上，注意使用新版本的api
-
-本项目的 Python 服务需要使用 conda 虚拟环境，环境名为 `AI`。运行脚本、启动服务或执行测试前，先执行 `conda activate AI`。
-
-每次修改、添加或删除文件后，你都需要思考本次修改会对该项目带来什么影响，应该如何处理这种影响，比如需要增加gitignore还是需要其他动作之类的
-
-每次修改、添加或删除文件后，你都需要询问我是否需要同步修改相关文档，如果我回答是，你应该进行如下动作：
-
-- 同步修改项目根目录下learn_docs/phase03/下的所有教学文件（如果没有就创建，撰写教学文档时使用md格式，将phase01、phase02已经教学过的内容排除），且应注意不要描述为：修改了/新增了/删除了等等，而是将修改后的项目看作完整项目而修改教学文档
-
-- 在项目根目录下docs/文件夹中创建本次修改总结，以时间（精确到分）+修改总结命名。如果两次修改时间很接近（15min之内）就合并两次修改到一个文件中（这里的合并不是单纯的add,而是融合，也就是说，相对于第一次修改之前的版本，直到第二次修改修改了什么）
-
-- CLAUDE.md
-
-所有注释一律用中文！
-
-
-## 项目概述
-
-CodeMind Agent 是一个基于 RAG (检索增强生成) 和 LangChain Agent 的代码仓库智能问答系统。用户可以用自然语言提问关于代码库的问题，系统会检索相关代码片段并通过 Agent 调用工具进行深度分析，最终生成回答。
-
-## 常用命令
-
-### 环境设置
+### Running Tests
 ```bash
-conda activate AI
-pip install -r requirements.txt
+# Run all tests
+python -m unittest discover tests
+
+# Run specific test file
+python -m unittest tests/test_index_repo_split.py
+
+# Run specific test class/method
+python -m unittest tests.test_index_repo_split.PythonAstSplitTests
+python -m unittest tests.test_index_repo_split.PythonAstSplitTests.test_keeps_small_class_as_single_block_with_decorators
 ```
 
-### 索引代码仓库
+### Running the Application
 ```bash
-python scripts/index_repo.py /path/to/repo
-```
-
-### 启动服务
-```bash
+# Start the FastAPI server
 python app.py
-# 或
+
+# Or with uvicorn
 uvicorn app:app --reload
 ```
 
-### 服务访问
-- Swagger UI: http://localhost:8000/docs
-- 健康检查: http://localhost:8000/health
-- 问答接口: POST http://localhost:8000/chat
+### Indexing a Repository
+```bash
+# Index using config.yml repo.path
+python scripts/index_repo.py
 
-## 架构概览
+# Index specific directory
+python scripts/index_repo.py /path/to/repo
 
-### 核心文件
-
-| 文件/目录 | 职责 |
-|----------|------|
-| `app.py` | FastAPI 主应用，提供 /chat 和 /health 接口 |
-| `scripts/index_repo.py` | 索引脚本，将代码库向量化并存入 Chroma |
-| `utils/logger.py` | 单例日志工具 |
-| `utils/config.py` | 配置加载工具（config.yml + .env） |
-| `utils/summarizer.py` | 总结层模块，对检索结果进行总结提炼 |
-| `prompts/` | 提示词管理目录 |
-| `prompts/prompt_manager.py` | 提示词管理器，统一管理所有提示词 |
-| `agent/` | Agent 核心模块目录 |
-| `agent/agent.py` | Agent 创建与执行逻辑 |
-| `agent/security.py` | 安全检查模块（路径、文件、命令验证） |
-| `agent/tools/` | Agent 工具目录（ReadFile、SearchCode、RunCommand） |
-| `config.yml` | 应用配置（模型、参数、Agent 配置等） |
-| `.env` | 环境变量（仅 DASHSCOPE_API_KEY） |
-
-### 数据流向
-
-#### 索引阶段:
-```
-代码文件 → 智能切分（保留完整类）→ Embedding → Chroma DB
+# Index with custom persist directory
+python scripts/index_repo.py /path/to/repo --persist-dir ./my_chroma_db
 ```
 
-#### 查询阶段（Agent 模式）:
+## High-Level Architecture
+
+### Core Architecture
+This is a RAG-based (Retrieval-Augmented Generation) code repository Q&A system with an Agent-based architecture:
+
 ```
-用户问题 → Chroma 检索 → 总结模块（summarizer）→ Agent 初始化 → 工具调用循环 → 最终回答
-                ↓
-            相关文档
+FastAPI (app.py)
+    ↓
+ServiceManager (services/service_manager.py) [Singleton]
+    ├→ Agent (agent/agent.py)
+    │   ├→ Tools (agent/tools/*)
+    │   │   ├→ RetrieveAndSummarize (RAG)
+    │   │   ├→ ReadFile
+    │   │   ├→ SearchCode
+    │   │   └→ RunCommand
+    │   └→ Security (agent/security.py)
+    ├→ Vector DB (Chroma)
+    ├→ Summarizer LLM
+    └→ PromptManager (prompts/prompt_manager.py)
 ```
 
-#### Agent 执行流程:
-1. **接收任务**：Agent 获得用户自然语言指令
-2. **推理与规划**：LLM 生成 Thought，决定调用哪个工具
-3. **工具执行**：LangChain 自动解析并调用工具函数（含安全检查）
-4. **观察结果**：工具返回结果追加到对话上下文
-5. **循环直至完成**：重复上述步骤，直至输出 Final Answer
+### Key Design Decisions
 
-### Agent 工具列表
+1. **ServiceManager Singleton Pattern**: All core services (Agent, Vector DB, LLMs) are managed by a single `ServiceManager` instance initialized in the FastAPI lifespan. Tools access services via global injection.
 
-| 工具名称 | 功能描述 | 安全限制 |
-|---------|---------|---------|
-| `ReadFile` | 读取指定仓库文件内容（支持行号范围） | 仅允许白名单目录；禁止读取敏感文件（.env、*.key 等） |
-| `SearchCode` | 基于关键词或正则表达式在代码库中搜索 | 搜索范围限定于授权仓库；结果上限 50 条 |
-| `RunCommand` | 执行只读 shell 命令（ls、cat、grep、git 等） | 命令白名单；超时 5 秒；禁用 shell=True |
+2. **Python AST-based Code Splitting**: The RAG system uses AST parsing for intelligent Python code chunking (preserves class/function boundaries) with a fallback indentation-scanner for invalid Python. Located in `scripts/index_repo.py`.
 
-### 关键技术决策
+3. **Two-Tier Retrieval**: Code and documents are retrieved separately with configurable `retrieval_k` values (defaults: docs=5, codes=10), then passed through a summarization layer before being given to the main LLM.
 
-1. **Chroma 导入**: 使用 `langchain_chroma` 而非 `langchain_community`
-2. **FastAPI Lifespan**: 使用 `@asynccontextmanager` 替代已弃用的 `@app.on_event`
-3. **代码切分**: Python 代码优先保留完整类（<3000 字符），超长类才按方法切分
-4. **配置分离**: `config.yml` 存公开配置，`.env` 存敏感信息
-5. **单例日志**: `utils.logger.get_logger()` 防止重复初始化
-6. **LangChain @tool**: 使用 `@tool` 装饰器定义工具，通过 AgentExecutor 统一管理
-7. **安全检查**: 工具调用前进行路径、文件、命令三重安全验证
-8. **总结前置**: 总结模块在 Agent 执行前运行，减少 token 消耗
-9. **提示词统一管理**: 通过 `PromptManager` 单例统一管理所有提示词，支持版本控制和多语言
-10. **代码清理策略**: 定期清理废弃函数，移除已弃用、未使用或仅向后兼容的代码，保持代码库健康
+4. **Security-First Tool Design**: All file/command operations go through `agent/security.py` which validates:
+   - Paths are within allowed directories (normalizes `../`)
+   - Files aren't sensitive (`.env`, `*.pem`, `*.key`, etc.)
+   - Commands are whitelisted and don't have dangerous args (e.g., `ls -R` is blocked)
 
+### Important File Relationships
+
+| File | Depends On | Purpose |
+|------|-----------|--------|
+| `app.py` | `services/service_manager.py`, `agent/streaming.py` | FastAPI entrypoint, lifespan manages ServiceManager |
+| `services/service_manager.py` | `agent/agent.py`, `utils/config.py`, `utils/summarizer.py` | Initializes and provides access to all services |
+| `agent/agent.py` | `agent/tools/*`, `prompts/prompt_manager.py` | Creates LangChain Agent with tools |
+| `agent/tools/retrieve_and_summarize.py` | `utils/summarizer.py` | RAG tool that accesses Vector DB via ServiceManager |
+| `scripts/index_repo.py` | `utils/config.py`, `utils/logger.py` | Indexes repo using AST-based splitting |
+
+### Data Flow for a Chat Request
+
+1. User POSTs `/chat` → FastAPI route handler
+2. Gets `service_manager.agent`
+3. Calls `agent.aexecute(question, history)`
+4. Agent may decide to use `RetrieveAndSummarize` tool
+5. Tool does async similarity search on Chroma (code+docs separately)
+6. Results passed through summarizer LLM
+7. Agent generates final answer from tool results
+8. JSON response returned
+
+### Configuration
+
+- Main config: `config.yml` (loaded by `utils/config.Config`)
+- Environment secrets: `.env` (DASHSCOPE_API_KEY required)
+- Chroma DB persistence directory configured in `config.yml`
