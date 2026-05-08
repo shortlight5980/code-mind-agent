@@ -12,6 +12,7 @@ from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
+from langchain_core.documents import Document
 
 from utils.logger import get_logger
 from utils.config import Config
@@ -298,18 +299,23 @@ def split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 30
     patterns = {
         # Java: 类、接口及主要访问修饰符
         ".java": r"\n(?=public |private |protected |class |interface )",
+
         # JavaScript: 函数、类及变量声明
         ".js": r"\n(?=function |class |const |let |var )",
+
         # TypeScript: 函数、类、接口及导出语句
         ".ts": r"\n(?=function |class |interface |export )",
+
         # Go: 函数、类型及结构体定义
         ".go": r"\n(?=func |type |struct )",
     }
     pattern = patterns.get(file_ext)
     if pattern:
-        return re.split(pattern, content)
+        blocks = re.split(pattern, content)
+        return [block.strip() for block in blocks if block.strip()]
+
     else:
-        return [content]
+        return []
 
 
 def index_repo(repo_path: str = None, persist_dir: str = None):
@@ -389,21 +395,29 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
 
                     # 根据代码边界进行智能分割
                     for doc in docs:
+                        if not doc.page_content.strip():
+                            continue
                         ext = os.path.splitext(file)[1]
                         blocks = split_by_code_blocks(doc.page_content, ext, max_class_length)
-                        for block in blocks:
-                            if block.strip():
-                                # TODO: 代码文件不继续拆分
-                                # 具有上下文重叠的细粒度拆分
-                                splitter = RecursiveCharacterTextSplitter(
-                                    chunk_size=chunk_size,
-                                    chunk_overlap=chunk_overlap
-                                )
-                                chunks = splitter.create_documents(
-                                    [block],
-                                    metadatas=[{"source": file_path}]
-                                )
-                                all_chunks.extend(chunks)
+                        if not blocks:
+                            # 是普通文档或不支持的语言类型，使用文档切割器
+                            splitter = RecursiveCharacterTextSplitter(
+                                chunk_size=chunk_size,
+                                chunk_overlap=chunk_overlap
+                            )
+                            chunks = splitter.create_documents(
+                                [doc.page_content.strip()],
+                                metadatas=[{"source": file_path}]
+                            )
+                            all_chunks.extend(chunks)
+                        else:
+                            for block in blocks:
+                                if block.strip():
+                                    chunk = Document(
+                                        page_content=block,
+                                        metadata={"source": file_path}
+                                    )
+                                    all_chunks.append(chunk)
                 except Exception as e:
                     logger.warning(f"Skipping file {file_path}: {e}")
 
