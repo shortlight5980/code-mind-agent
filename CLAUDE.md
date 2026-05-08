@@ -112,24 +112,3 @@ uvicorn app:app --reload
 9. **提示词统一管理**: 通过 `PromptManager` 单例统一管理所有提示词，支持版本控制和多语言
 10. **代码清理策略**: 定期清理废弃函数，移除已弃用、未使用或仅向后兼容的代码，保持代码库健康
 
-## 学习文档
-
-项目包含详细的学习文档，位于 `learn_docs/` 目录：
-
-**Phase 01：基础架构**
-- `learn_docs/phase01/01-项目总览.md`
-- `learn_docs/phase01/02-技术栈详解.md`
-- `learn_docs/phase01/03-RAG原理入门.md`
-- `learn_docs/phase01/04-代码结构解析.md`
-- `learn_docs/phase01/05-快速上手指南.md`
-
-**Phase 02：Agent与高级功能**
-- `learn_docs/phase02/01-Agent原理入门.md`
-- `learn_docs/phase02/02-安全模块详解.md`
-- `learn_docs/phase02/03-Agent工具实现.md`
-- `learn_docs/phase02/04-Agent核心逻辑.md`
-- `learn_docs/phase02/05-完整集成与测试.md`
-- `learn_docs/phase02/06-架构优化进阶.md`
-
-**Phase 03：最新更新**
-- `learn_docs/phase03/01-代码清理与架构优化.md`（代码清理策略与废弃函数管理）
