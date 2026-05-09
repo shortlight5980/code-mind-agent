@@ -9,6 +9,7 @@ from langchain_community.chat_models import ChatTongyi
 
 from utils.logger import get_logger
 from utils.config import Config
+from utils.query_rewriting import create_query_rewriter
 from utils.summarizer import create_summarizer
 from agent.agent import CodeMindAgent
 from agent.tools import initialize_tool_service_manager
@@ -62,6 +63,9 @@ class ServiceManager:
         # 初始化摘要LLM
         self._init_summarizer_llm()
 
+        # 初始化查询改写LLM
+        self._init_query_rewriting_llm()
+
         # 初始化Agent
         self._init_agent()
 
@@ -97,7 +101,6 @@ class ServiceManager:
     def _init_llm(self) -> None:
         """初始化主LLM"""
         llm_model = Config.get("llm.model", "qwen-max")
-        llm_temperature = Config.get("llm.temperature", 0.1)
 
         logger.info(f"初始化主LLM: {llm_model}")
 
@@ -122,6 +125,17 @@ class ServiceManager:
 
         self._services["summarizer_llm"] = summarizer_llm
         logger.info("摘要LLM初始化完成")
+
+    def _init_query_rewriting_llm(self):
+        """初始化查询改写LLM"""
+        query_rewriting_model = Config.get("query_rewriting.model", "qwen-max")
+
+        logger.info(f"初始化查询改写LLM: {query_rewriting_model}")
+
+        query_rewriting_llm = create_query_rewriter(query_rewriting_model)
+
+        self._services["query_rewriting_llm"] = query_rewriting_llm
+        logger.info("查询改写LLM初始化完成")
 
     def _init_agent(self) -> None:
         """初始化CodeMind Agent"""
@@ -181,6 +195,11 @@ class ServiceManager:
     def summarizer_llm(self) -> Optional[ChatTongyi]:
         """摘要LLM服务"""
         return self._services.get("summarizer_llm")
+
+    @property
+    def query_rewriting_llm(self) -> Optional[Any]:
+        """查询改写LLM服务"""
+        return self._services.get("query_rewriting_llm")
 
     @property
     def agent(self) -> Optional[CodeMindAgent]:

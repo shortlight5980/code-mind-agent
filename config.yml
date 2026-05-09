@@ -25,6 +25,9 @@ summarizer:
   model: "qwen-turbo"
   temperature: 0.1
 
+query_rewriting:
+  model: "qwen-turbo"
+
 splitting:
   max_class_length: 3000  # Classes longer than this will be split
 

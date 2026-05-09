@@ -2,6 +2,7 @@
 提示词管理模块
 提供提示词版本管理、多语言支持、不同场景模板
 """
+import time
 from typing import Dict, Optional
 from enum import Enum
 from dataclasses import dataclass
@@ -21,6 +22,8 @@ class PromptScenario(Enum):
     GENERAL_QA = "general_qa"
     AGENT_SYSTEM = "agent_system"  # Agent 系统提示词
     SUMMARIZATION = "summarization"  # 总结提示词
+    QUERY_KEY_WORDS = "query_key_words" #查询关键词提取
+    QUERY_ANSWER_GUESS = "query_answer_guess" #推测查询的答案
 
 
 class PromptLanguage(Enum):
@@ -257,6 +260,52 @@ Now begin answering:""",
             input_variables=["input", "context"],
             description="总结提示词（中文）",
             created_at="2024-01-01"
+        ))
+
+        # 中文查询关键词提取提示词
+        self._register_prompt(PromptVersion(
+            version="1.0.0",
+            scenario=PromptScenario.QUERY_KEY_WORDS,
+            language=PromptLanguage.ZH_CN,
+            template="""你是专注于"查询关键词提取"的AI助手，需将用户的问题转化为几个核心关键词。
+
+        ### 输入信息
+        1. 用户提问：{input}
+
+        ### 严格遵守以下约束（违反将导致回答无效）
+        1. 内容合规：禁止包含违法、侵权、攻击性信息；
+        2. 事实准确：回答必须完全基于查询信息，不编造、不添加未提及的内容，不做主观推断；
+        3. 语言要求：仅用中文回答；
+        4. 同义转换：仅仅将非常不专业且模糊的词汇转化为开发者领域的相关同义词汇；
+        5. 格式要求：以纯文本字符串形式呈现，不封装为字典、列表、JSON等任何结构，不附带额外说明，关键词仅以英文逗号分隔。
+        """,
+            input_variables=["input"],
+            description="查询关键词提取提示词（中文）",
+            created_at="2026-5-9"
+        ))
+
+        # 中文问题答案推测提取提示词
+        self._register_prompt(PromptVersion(
+            version="1.0.0",
+            scenario=PromptScenario.QUERY_ANSWER_GUESS,
+            language=PromptLanguage.ZH_CN,
+            template="""你是专注于"问题答案推测"的AI助手，需完全基于用户的问题推测可能的答案。
+
+                ### 输入信息
+                1. 用户提问：{input}
+
+                ### 严格遵守以下约束（违反将导致回答无效）
+                1. 内容合规：禁止包含违法、侵权、攻击性信息；
+                2. 事实准确：回答必须完全基于查询信息，不编造、不添加未提及的内容，不做主观推断；
+                3. 语言要求：仅用中文回答；
+                4. 答案范围：答案必须基于代码开发领域，不做过多发散，仅给出可能的实现方式、bug推测等；
+                5. 格式要求：以纯文本字符串形式呈现，不封装为字典、列表、JSON等任何结构，不附带额外说明。
+                6. ！重要！：如果问题实在模糊无法推测答案，则仅仅返回空格！！禁止任何如：“具体信息未提供，无法进一步推测”的回答！！
+                7. 对于具体的查询问题，不要给出名词解释，而是返回空格，只有用户的问题明确让你解释名词才解释！
+                """,
+            input_variables=["input"],
+            description="问题答案推测提示词（中文）",
+            created_at="2026-5-9"
         ))
 
         logger.info("默认提示词模板初始化完成")

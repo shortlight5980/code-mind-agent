@@ -57,6 +57,9 @@ exclude_dirs = {
     # 其他常见构建/依赖目录
     'packages', '.next', 'nuxt', '.nuxt', '.output',
     '.terraform', '.serverless',
+
+    # .understand-anything
+    '.understand-anything'
 }
 
 # Files to exclude (exact names or patterns)

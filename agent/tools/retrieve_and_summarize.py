@@ -9,6 +9,7 @@ from typing import Optional, Any
 from langchain_core.tools import tool
 
 from utils.logger import get_logger
+from utils.query_rewriting import aget_query_key_words, aget_query_answer_guess
 from utils.summarizer import asummarize_context
 
 logger = get_logger("agent.tools.retrieve_and_summarize")
@@ -54,6 +55,7 @@ async def RetrieveAndSummarize(question: str) -> str:
 
     vectordb = _service_manager.vectordb
     summarizer_llm = _service_manager.summarizer_llm
+    query_rewriting_llm = _service_manager.query_rewriting_llm
     retrieval_k = _service_manager.retrieval_k
 
     if vectordb is None:
@@ -66,26 +68,43 @@ async def RetrieveAndSummarize(question: str) -> str:
         logger.error(error_msg)
         return error_msg
 
+    if query_rewriting_llm is None:
+        error_msg = "[错误] 查询改写模型未初始化"
+        logger.error(error_msg)
+        return error_msg
+
     try:
         # 步骤1: 向量检索
         logger.info(f"开始向量数据库检索，数量: {retrieval_k}")
         # TODO
-        """
+        """；
         第一步：Query优化
         •Query Rewriting：把用户的问题改写成更适合检索的形式•Query Decomposition：把复杂问题拆成几个子问题•HyDE：先让LLM生成一个假设性的答案，再用这个答案去检索
         """
+
+        # 关键词提取：
+        key_words = await aget_query_key_words(question,query_rewriting_llm)
+        # 问题答案推测
+        answer_guess = await aget_query_answer_guess(question, query_rewriting_llm)
+
+        # TODO: 如何融合检索？
+        temp_question = answer_guess + " 关键词：" + (', '.join(key_words)) * 3
+
+        logger.info("=" * 80)
+        logger.info(f"最终用于检索的文本：{temp_question}")
+        logger.info("=" * 80)
 
         metadata_filter_doc = {"type": "doc"}
         metadata_filter_code = {"type": "code"}
 
         docs = await vectordb.asimilarity_search(
-            question,
+            temp_question,
             k=retrieval_k.get("doc", 5),
             filter=metadata_filter_doc
         )
 
         docs.extend(await vectordb.asimilarity_search(
-            question,
+            temp_question,
             k=retrieval_k.get("code", 10),
             filter=metadata_filter_code
         ))

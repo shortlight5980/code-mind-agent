@@ -72,7 +72,7 @@ uvicorn app:app --reload
 
 #### 方式一：Swagger UI (推荐)
 
-打开浏览器访问 `http://localhost:8000/docs`，直接在页面上测试接口。
+打开浏览器访问 `http://localhost:8000/docs` 直接在页面上测试接口。
 
 #### 方式二：Python Requests
 
