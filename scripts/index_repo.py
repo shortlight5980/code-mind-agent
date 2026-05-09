@@ -42,52 +42,24 @@ LANGUAGE_MAP = {
     '.cpp': 'cpp',
 }
 
-CHUNK_TYPES = {
-    'python': [
-        'function_definition', 'class_definition',
-        'if_statement', 'for_statement', 'while_statement',
-        'with_statement', 'try_statement',
-    ],
-    'javascript': [
-        'function_declaration', 'generator_function_declaration',
-        'arrow_function', 'class_declaration',
-        'method_definition', 'export_statement',
-        'if_statement', 'for_statement', 'while_statement',
-        'try_statement', 'switch_statement',
-    ],
-    'typescript': [
-        'function_declaration', 'generator_function_declaration',
-        'arrow_function', 'class_declaration',
-        'method_definition', 'export_statement',
-        'if_statement', 'for_statement', 'while_statement',
-        'try_statement', 'switch_statement',
-    ],
-    'tsx': [
-        'function_declaration', 'generator_function_declaration',
-        'arrow_function', 'class_declaration',
-        'method_definition', 'export_statement',
-        'if_statement', 'for_statement', 'while_statement',
-        'try_statement', 'switch_statement',
-    ],
-    'go': [
-        'function_declaration', 'method_declaration',
-        'if_statement', 'for_statement',
-    ],
-    'rust': [
-        'function_item', 'impl_item', 'struct_item',
-        'if_expression', 'loop_expression', 'while_expression',
-    ],
-    'java': [
-        'method_declaration', 'class_declaration',
-        'if_statement', 'for_statement', 'while_statement',
-    ],
-    'c': [
-        'function_definition', 'if_statement', 'for_statement', 'while_statement',
-    ],
-    'cpp': [
-        'function_definition', 'class_specifier',
-        'if_statement', 'for_statement', 'while_statement',
-    ],
+CLASS_CHUNK_TYPES = {
+    'javascript': ['class_declaration'],
+    'typescript': ['class_declaration'],
+    'tsx': ['class_declaration'],
+    'rust': ['impl_item', 'struct_item'],
+    'java': ['class_declaration'],
+    'cpp': ['class_specifier'],
+}
+
+FUNCTION_CHUNK_TYPES = {
+    'javascript': ['function_declaration', 'generator_function_declaration', 'arrow_function', 'method_definition'],
+    'typescript': ['function_declaration', 'generator_function_declaration', 'arrow_function', 'method_definition'],
+    'tsx': ['function_declaration', 'generator_function_declaration', 'arrow_function', 'method_definition'],
+    'go': ['function_declaration', 'method_declaration'],
+    'rust': ['function_item'],
+    'java': ['method_declaration'],
+    'c': ['function_definition'],
+    'cpp': ['function_definition'],
 }
 
 # Directories to exclude
@@ -495,8 +467,9 @@ class TreeSitterCodeSplitter(CodeSplitter):
             logger.warning("tree_sitter_languages is not installed; falling back to regex code splitter")
             return self.fallback_splitter.split(content, max_class_length)
 
-        target_types = set(CHUNK_TYPES.get(self.language_name, []))
-        if not target_types:
+        class_types = set(CLASS_CHUNK_TYPES.get(self.language_name, []))
+        function_types = set(FUNCTION_CHUNK_TYPES.get(self.language_name, []))
+        if not class_types and not function_types:
             return self.fallback_splitter.split(content, max_class_length)
 
         try:
@@ -506,19 +479,13 @@ class TreeSitterCodeSplitter(CodeSplitter):
             logger.warning(f"Tree-sitter parsing failed for {self.language_name}: {exc}")
             return self.fallback_splitter.split(content, max_class_length)
 
-        chunks = []
-
-        def traverse(node):
-            if node.type in target_types:
-                chunk = self._expand_chunk_to_statement(content, node)
-                if chunk.strip():
-                    chunks.append(chunk)
-                return
-
-            for child in node.children:
-                traverse(child)
-
-        traverse(tree.root_node)
+        chunks = self._extract_priority_chunks(
+            content,
+            tree.root_node,
+            class_types,
+            function_types,
+            max_class_length,
+        )
         return chunks or self.fallback_splitter.split(content, max_class_length)
 
     def _build_parser(self):
@@ -547,6 +514,92 @@ class TreeSitterCodeSplitter(CodeSplitter):
             parent = parent.parent
 
         return content[start_byte:end_byte].strip()
+
+    def _extract_priority_chunks(
+        self,
+        content: str,
+        root,
+        class_types: set[str],
+        function_types: set[str],
+        max_class_length: int,
+    ) -> list[str]:
+        class_nodes = []
+        if class_types:
+            self._collect_nodes(root, class_types, class_nodes)
+
+        chunks = []
+        occupied_ranges = []
+        for node in class_nodes:
+            class_chunk = self._expand_chunk_to_statement(content, node)
+            if not class_chunk.strip():
+                continue
+
+            occupied_ranges.append((node.start_byte, node.end_byte))
+            if len(class_chunk) <= max_class_length:
+                chunks.append(class_chunk)
+            else:
+                method_chunks = self._split_container_by_functions(
+                    content,
+                    node,
+                    function_types,
+                )
+                chunks.extend(method_chunks or [class_chunk])
+
+        function_nodes = []
+        if function_types:
+            self._collect_nodes(root, function_types, function_nodes)
+
+        for node in function_nodes:
+            if self._is_inside_any_range(node, occupied_ranges):
+                continue
+
+            chunk = self._expand_chunk_to_statement(content, node)
+            if chunk.strip():
+                chunks.append(chunk)
+
+        chunks.sort(key=lambda chunk: content.find(chunk))
+        return chunks
+
+    def _collect_nodes(self, node, target_types: set[str], results: list):
+        if node.type in target_types:
+            results.append(node)
+            return
+
+        for child in node.children:
+            self._collect_nodes(child, target_types, results)
+
+    def _split_container_by_functions(
+        self,
+        content: str,
+        container_node,
+        function_types: set[str],
+    ) -> list[str]:
+        if not function_types:
+            return []
+
+        method_nodes = []
+        for child in container_node.children:
+            self._collect_direct_function_nodes(child, function_types, method_nodes)
+
+        chunks = []
+        for node in method_nodes:
+            chunk = self._expand_chunk_to_statement(content, node)
+            if chunk.strip():
+                chunks.append(chunk)
+        return chunks
+
+    def _collect_direct_function_nodes(self, node, function_types: set[str], results: list):
+        if node.type in function_types:
+            results.append(node)
+            return
+
+        for child in node.children:
+            if child.type in CLASS_CHUNK_TYPES.get(self.language_name, []):
+                continue
+            self._collect_direct_function_nodes(child, function_types, results)
+
+    def _is_inside_any_range(self, node, ranges: list[tuple[int, int]]) -> bool:
+        return any(start <= node.start_byte and node.end_byte <= end for start, end in ranges)
 
 
 class RegexCodeSplitter(CodeSplitter):
