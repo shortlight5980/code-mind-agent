@@ -20,7 +20,6 @@ from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
-from langchain_core.documents import Document
 
 from utils.logger import get_logger
 from utils.config import Config
@@ -729,36 +728,6 @@ def get_code_splitter(file_ext: str) -> CodeSplitter:
         return TreeSitterCodeSplitter(language_name, fallback_splitter)
 
     return fallback_splitter
-
-
-def _legacy_regex_split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 3000):
-    """
-    根据智能边界分割代码。
-    re模式分割
-    """
-    # 针对其他语言的简单基于模式的分割策略
-    # 定义不同编程语言的代码块分割正则表达式模式
-    # 使用正向先行断言 (?=...) 在匹配换行符的同时，确保后续内容符合特定语法结构的开头
-    patterns = {
-        # Java: 类、接口及主要访问修饰符
-        ".java": r"\n(?=public |private |protected |class |interface )",
-
-        # JavaScript: 函数、类及变量声明
-        ".js": r"\n(?=function |class |const |let |var )",
-
-        # TypeScript: 函数、类、接口及导出语句
-        ".ts": r"\n(?=function |class |interface |export )",
-
-        # Go: 函数、类型及结构体定义
-        ".go": r"\n(?=func |type |struct )",
-    }
-    pattern = patterns.get(file_ext)
-    if pattern:
-        blocks = re.split(pattern, content)
-        return [block.strip() for block in blocks if block.strip()]
-
-    else:
-        return [content]
 
 def split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 3000):
     return get_code_splitter(file_ext).split(content, max_class_length)
