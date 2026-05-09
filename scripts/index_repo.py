@@ -499,6 +499,10 @@ class TreeSitterCodeSplitter(CodeSplitter):
             return parser
 
     def _expand_chunk_to_statement(self, content: str, node) -> str:
+        _, _, chunk = self._expanded_chunk(content, node)
+        return chunk
+
+    def _expanded_chunk(self, content: str, node) -> tuple[int, int, str]:
         start_byte = node.start_byte
         end_byte = node.end_byte
         parent = node.parent
@@ -513,7 +517,7 @@ class TreeSitterCodeSplitter(CodeSplitter):
             end_byte = max(end_byte, parent.end_byte)
             parent = parent.parent
 
-        return content[start_byte:end_byte].strip()
+        return start_byte, end_byte, content[start_byte:end_byte].strip()
 
     def _extract_priority_chunks(
         self,
@@ -527,23 +531,25 @@ class TreeSitterCodeSplitter(CodeSplitter):
         if class_types:
             self._collect_nodes(root, class_types, class_nodes)
 
-        chunks = []
-        occupied_ranges = []
+        primary_chunks = []
+        covered_ranges = []
         for node in class_nodes:
             class_chunk = self._expand_chunk_to_statement(content, node)
             if not class_chunk.strip():
                 continue
 
-            occupied_ranges.append((node.start_byte, node.end_byte))
+            covered_ranges.append((node.start_byte, node.end_byte))
             if len(class_chunk) <= max_class_length:
-                chunks.append(class_chunk)
+                primary_chunks.append((node.start_byte, node.end_byte, class_chunk))
             else:
                 method_chunks = self._split_container_by_functions(
                     content,
                     node,
                     function_types,
                 )
-                chunks.extend(method_chunks or [class_chunk])
+                primary_chunks.extend(method_chunks or [(node.start_byte, node.end_byte, class_chunk)])
+
+        occupied_ranges = covered_ranges + [(start, end) for start, end, _ in primary_chunks]
 
         function_nodes = []
         if function_types:
@@ -553,12 +559,11 @@ class TreeSitterCodeSplitter(CodeSplitter):
             if self._is_inside_any_range(node, occupied_ranges):
                 continue
 
-            chunk = self._expand_chunk_to_statement(content, node)
+            start_byte, end_byte, chunk = self._expanded_chunk(content, node)
             if chunk.strip():
-                chunks.append(chunk)
+                primary_chunks.append((start_byte, end_byte, chunk))
 
-        chunks.sort(key=lambda chunk: content.find(chunk))
-        return chunks
+        return self._merge_primary_chunks_with_fragments(content, primary_chunks, covered_ranges)
 
     def _collect_nodes(self, node, target_types: set[str], results: list):
         if node.type in target_types:
@@ -573,7 +578,7 @@ class TreeSitterCodeSplitter(CodeSplitter):
         content: str,
         container_node,
         function_types: set[str],
-    ) -> list[str]:
+    ) -> list[tuple[int, int, str]]:
         if not function_types:
             return []
 
@@ -583,9 +588,9 @@ class TreeSitterCodeSplitter(CodeSplitter):
 
         chunks = []
         for node in method_nodes:
-            chunk = self._expand_chunk_to_statement(content, node)
+            start_byte, end_byte, chunk = self._expanded_chunk(content, node)
             if chunk.strip():
-                chunks.append(chunk)
+                chunks.append((start_byte, end_byte, chunk))
         return chunks
 
     def _collect_direct_function_nodes(self, node, function_types: set[str], results: list):
@@ -600,6 +605,57 @@ class TreeSitterCodeSplitter(CodeSplitter):
 
     def _is_inside_any_range(self, node, ranges: list[tuple[int, int]]) -> bool:
         return any(start <= node.start_byte and node.end_byte <= end for start, end in ranges)
+
+    def _merge_primary_chunks_with_fragments(
+        self,
+        content: str,
+        primary_chunks: list[tuple[int, int, str]],
+        covered_ranges: list[tuple[int, int]],
+    ) -> list[str]:
+        sorted_chunks = sorted(primary_chunks, key=lambda item: (item[0], item[1]))
+        sorted_covered_ranges = sorted(covered_ranges)
+        merged = []
+        cursor = 0
+
+        for start_byte, end_byte, chunk in sorted_chunks:
+            if start_byte < cursor:
+                continue
+
+            fragment_start = self._skip_covered_ranges(cursor, start_byte, sorted_covered_ranges, merged, content)
+            self._append_fragment(merged, content[fragment_start:start_byte])
+            if chunk.strip():
+                merged.append(chunk)
+            cursor = max(cursor, end_byte)
+
+        fragment_start = self._skip_covered_ranges(cursor, len(content), sorted_covered_ranges, merged, content)
+        self._append_fragment(merged, content[fragment_start:])
+        return merged
+
+    def _append_fragment(self, chunks: list[str], fragment: str):
+        cleaned = fragment.strip()
+        if cleaned and re.search(r"\w", cleaned):
+            chunks.append(cleaned)
+
+    def _skip_covered_ranges(
+        self,
+        start: int,
+        end: int,
+        covered_ranges: list[tuple[int, int]],
+        chunks: list[str],
+        content: str,
+    ) -> int:
+        cursor = start
+        for covered_start, covered_end in covered_ranges:
+            if covered_end <= cursor:
+                continue
+            if covered_start >= end:
+                break
+            if cursor < covered_start:
+                self._append_fragment(chunks, content[cursor:min(covered_start, end)])
+            cursor = max(cursor, covered_end)
+            if cursor >= end:
+                break
+        return cursor
 
 
 class RegexCodeSplitter(CodeSplitter):

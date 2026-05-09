@@ -37,9 +37,11 @@ const Hello: React.FC<Props> = ({ name }) => {
 
         blocks = self._split_without_fallback("tsx", content)
 
-        self.assertEqual(2, len(blocks))
-        self.assertTrue(blocks[0].startswith("export function Header"))
-        self.assertTrue(blocks[1].startswith("const Hello"))
+        self.assertEqual(3, len(blocks))
+        self.assertTrue(blocks[0].startswith('import React from "react";'))
+        self.assertIn("interface Props", blocks[0])
+        self.assertTrue(blocks[1].startswith("export function Header"))
+        self.assertTrue(blocks[2].startswith("const Hello"))
 
     def test_java_chunks_class_declaration(self):
         content = """
@@ -54,9 +56,10 @@ public class Service {
 
         blocks = self._split_without_fallback("java", content)
 
-        self.assertEqual(1, len(blocks))
-        self.assertTrue(blocks[0].startswith("public class Service"))
-        self.assertIn("public String greet", blocks[0])
+        self.assertEqual(2, len(blocks))
+        self.assertEqual("package demo;", blocks[0])
+        self.assertTrue(blocks[1].startswith("public class Service"))
+        self.assertIn("public String greet", blocks[1])
 
     def test_rust_chunks_struct_impl_and_function(self):
         content = """
@@ -154,6 +157,62 @@ class LargeService {
         self.assertEqual(2, len(blocks))
         self.assertTrue(blocks[0].startswith("start()"))
         self.assertTrue(blocks[1].startswith("stop()"))
+
+    def test_javascript_preserves_top_level_gap_and_tail_fragments(self):
+        content = """
+import React from "react";
+export const config = { enabled: true };
+
+class Service {
+  start() {
+    return true;
+  }
+}
+
+export type Mode = "dark" | "light";
+
+function helper() {
+  return 1;
+}
+
+const tailValue = helper();
+console.log(tailValue);
+""".strip()
+
+        blocks = self._split_without_fallback("javascript", content)
+
+        self.assertEqual(5, len(blocks))
+        self.assertTrue(blocks[0].startswith('import React from "react";'))
+        self.assertIn("export const config", blocks[0])
+        self.assertTrue(blocks[1].startswith("class Service"))
+        self.assertEqual('export type Mode = "dark" | "light";', blocks[2])
+        self.assertTrue(blocks[3].startswith("function helper"))
+        self.assertTrue(blocks[4].startswith("const tailValue"))
+
+    def test_large_class_preserves_surrounding_fragments(self):
+        content = """
+const before = 1;
+
+class LargeService {
+  start() {
+    return true;
+  }
+
+  stop() {
+    return false;
+  }
+}
+
+const after = 2;
+""".strip()
+
+        blocks = self._split_without_fallback("javascript", content, max_class_length=10)
+
+        self.assertEqual(4, len(blocks))
+        self.assertEqual("const before = 1;", blocks[0])
+        self.assertTrue(blocks[1].startswith("start()"))
+        self.assertTrue(blocks[2].startswith("stop()"))
+        self.assertEqual("const after = 2;", blocks[3])
 
 
 if __name__ == "__main__":

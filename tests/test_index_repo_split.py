@@ -150,9 +150,10 @@ class CodeSplitterStrategyTests(unittest.TestCase):
         blocks = splitter.split(content, max_class_length=3000)
 
         self.assertIsInstance(splitter, index_repo.TreeSitterCodeSplitter)
-        self.assertEqual(2, len(blocks))
-        self.assertTrue(blocks[0].startswith("export function greet"))
-        self.assertTrue(blocks[1].startswith("const Hello"))
+        self.assertEqual(3, len(blocks))
+        self.assertEqual('import React from "react";', blocks[0])
+        self.assertTrue(blocks[1].startswith("export function greet"))
+        self.assertTrue(blocks[2].startswith("const Hello"))
 
     def test_tree_sitter_strategy_splits_go_functions_and_methods(self):
         content = textwrap.dedent(
@@ -171,9 +172,10 @@ class CodeSplitterStrategyTests(unittest.TestCase):
 
         blocks = index_repo.get_code_splitter(".go").split(content, max_class_length=3000)
 
-        self.assertEqual(2, len(blocks))
-        self.assertTrue(blocks[0].startswith("func greet"))
-        self.assertTrue(blocks[1].startswith("func (s Service) Run"))
+        self.assertEqual(3, len(blocks))
+        self.assertEqual("package main", blocks[0])
+        self.assertTrue(blocks[1].startswith("func greet"))
+        self.assertTrue(blocks[2].startswith("func (s Service) Run"))
 
     def test_unsupported_code_extension_uses_regex_fallback(self):
         content = "fn main() {}\n\nstruct App;"
