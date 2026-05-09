@@ -4,6 +4,14 @@ import ast
 import argparse
 import sys
 import fnmatch
+from abc import ABC, abstractmethod
+
+try:
+    import tree_sitter_languages as tslang
+    from tree_sitter import Parser
+except ImportError:
+    tslang = None
+    Parser = None
 
 # 将父目录添加到utils导入路径中
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,7 +27,68 @@ from utils.config import Config
 
 logger = get_logger("indexer")
 
-supported_exts = ('.py', '.java', '.js', '.ts', '.go', '.md', '.txt')
+supported_exts = ('.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.go', '.rs', '.c', '.cpp', '.md', '.txt')
+
+LANGUAGE_MAP = {
+    '.py': 'python',
+    '.js': 'javascript',
+    '.jsx': 'javascript',
+    '.ts': 'typescript',
+    '.tsx': 'tsx',
+    '.go': 'go',
+    '.rs': 'rust',
+    '.java': 'java',
+    '.c': 'c',
+    '.cpp': 'cpp',
+}
+
+CHUNK_TYPES = {
+    'python': [
+        'function_definition', 'class_definition',
+        'if_statement', 'for_statement', 'while_statement',
+        'with_statement', 'try_statement',
+    ],
+    'javascript': [
+        'function_declaration', 'generator_function_declaration',
+        'arrow_function', 'class_declaration',
+        'method_definition', 'export_statement',
+        'if_statement', 'for_statement', 'while_statement',
+        'try_statement', 'switch_statement',
+    ],
+    'typescript': [
+        'function_declaration', 'generator_function_declaration',
+        'arrow_function', 'class_declaration',
+        'method_definition', 'export_statement',
+        'if_statement', 'for_statement', 'while_statement',
+        'try_statement', 'switch_statement',
+    ],
+    'tsx': [
+        'function_declaration', 'generator_function_declaration',
+        'arrow_function', 'class_declaration',
+        'method_definition', 'export_statement',
+        'if_statement', 'for_statement', 'while_statement',
+        'try_statement', 'switch_statement',
+    ],
+    'go': [
+        'function_declaration', 'method_declaration',
+        'if_statement', 'for_statement',
+    ],
+    'rust': [
+        'function_item', 'impl_item', 'struct_item',
+        'if_expression', 'loop_expression', 'while_expression',
+    ],
+    'java': [
+        'method_declaration', 'class_declaration',
+        'if_statement', 'for_statement', 'while_statement',
+    ],
+    'c': [
+        'function_definition', 'if_statement', 'for_statement', 'while_statement',
+    ],
+    'cpp': [
+        'function_definition', 'class_specifier',
+        'if_statement', 'for_statement', 'while_statement',
+    ],
+}
 
 # Directories to exclude
 exclude_dirs = {
@@ -403,7 +472,157 @@ def _fallback_split_class_by_methods(class_content: str, class_indent: str):
     return blocks
 
 
-def split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 3000):
+class CodeSplitter(ABC):
+    """Unified interface for code chunking strategies."""
+
+    @abstractmethod
+    def split(self, content: str, max_class_length: int = 3000) -> list[str]:
+        pass
+
+
+class PythonCodeSplitter(CodeSplitter):
+    def split(self, content: str, max_class_length: int = 3000) -> list[str]:
+        return extract_python_classes_and_functions(content, max_class_length)
+
+
+class TreeSitterCodeSplitter(CodeSplitter):
+    def __init__(self, language_name: str, fallback_splitter: CodeSplitter | None = None):
+        self.language_name = language_name
+        self.fallback_splitter = fallback_splitter or RegexCodeSplitter("")
+
+    def split(self, content: str, max_class_length: int = 3000) -> list[str]:
+        if tslang is None:
+            logger.warning("tree_sitter_languages is not installed; falling back to regex code splitter")
+            return self.fallback_splitter.split(content, max_class_length)
+
+        target_types = set(CHUNK_TYPES.get(self.language_name, []))
+        if not target_types:
+            return self.fallback_splitter.split(content, max_class_length)
+
+        try:
+            parser = self._build_parser()
+            tree = parser.parse(content.encode('utf-8'))
+        except Exception as exc:
+            logger.warning(f"Tree-sitter parsing failed for {self.language_name}: {exc}")
+            return self.fallback_splitter.split(content, max_class_length)
+
+        chunks = []
+
+        def traverse(node):
+            if node.type in target_types:
+                chunk = self._expand_chunk_to_statement(content, node)
+                if chunk.strip():
+                    chunks.append(chunk)
+                return
+
+            for child in node.children:
+                traverse(child)
+
+        traverse(tree.root_node)
+        return chunks or self.fallback_splitter.split(content, max_class_length)
+
+    def _build_parser(self):
+        language = tslang.get_language(self.language_name)
+
+        try:
+            return tslang.Parser(language)
+        except AttributeError:
+            parser = Parser()
+            parser.set_language(language)
+            return parser
+
+    def _expand_chunk_to_statement(self, content: str, node) -> str:
+        start_byte = node.start_byte
+        end_byte = node.end_byte
+        parent = node.parent
+
+        while parent is not None and parent.type in {
+            'variable_declarator',
+            'lexical_declaration',
+            'variable_declaration',
+            'export_statement',
+        }:
+            start_byte = min(start_byte, parent.start_byte)
+            end_byte = max(end_byte, parent.end_byte)
+            parent = parent.parent
+
+        return content[start_byte:end_byte].strip()
+
+
+class RegexCodeSplitter(CodeSplitter):
+    def __init__(self, file_ext: str):
+        self.file_ext = file_ext
+
+    def split(self, content: str, max_class_length: int = 3000) -> list[str]:
+        patterns = {
+            ".java": r"\n(?=public |private |protected |class |interface )",
+            ".js": r"\n(?=function |class |const |let |var |export )",
+            ".jsx": r"\n(?=function |class |const |let |var |export )",
+            ".ts": r"\n(?=function |class |interface |export |const |let |var )",
+            ".tsx": r"\n(?=function |class |interface |export |const |let |var )",
+            ".go": r"\n(?=func |type |struct )",
+            ".rs": r"\n(?=fn |impl |struct |enum |trait )",
+            ".c": r"\n(?=[A-Za-z_][\\w\\s\\*]*\\s+[A-Za-z_]\\w*\\s*\\()",
+            ".cpp": r"\n(?=class |struct |[A-Za-z_:][\\w:\\s\\*<>~]*\\s+[A-Za-z_:~]\\w*\\s*\\()",
+        }
+        pattern = patterns.get(self.file_ext)
+        if pattern:
+            blocks = re.split(pattern, content)
+            return [
+                block.strip()
+                for block in blocks
+                if self._is_indexable_block(block)
+            ]
+
+        return [content] if content.strip() else []
+
+    def _is_indexable_block(self, block: str) -> bool:
+        stripped = block.strip()
+        if not stripped:
+            return False
+
+        indexable_prefixes = {
+            ".java": ("public ", "private ", "protected ", "class ", "interface "),
+            ".js": ("function ", "class ", "const ", "let ", "var ", "export "),
+            ".jsx": ("function ", "class ", "const ", "let ", "var ", "export "),
+            ".ts": ("function ", "class ", "interface ", "export ", "const ", "let ", "var "),
+            ".tsx": ("function ", "class ", "interface ", "export ", "const ", "let ", "var "),
+            ".go": ("func ", "type ", "struct "),
+            ".rs": ("fn ", "impl ", "struct ", "enum ", "trait "),
+            ".c": tuple(),
+            ".cpp": ("class ", "struct "),
+        }
+        prefixes = indexable_prefixes.get(self.file_ext)
+        if prefixes is None:
+            return True
+        if prefixes and stripped.startswith(prefixes):
+            return True
+
+        return self.file_ext in {".c", ".cpp"} and bool(re.match(
+            r"^[A-Za-z_:][\w:\s\*<>~]*\s+[A-Za-z_:~]\w*\s*\(",
+            stripped,
+        ))
+
+
+def get_language_for_file(filename: str) -> str | None:
+    ext = os.path.splitext(filename)[-1].lower()
+    return LANGUAGE_MAP.get(ext)
+
+
+def get_code_splitter(file_ext: str) -> CodeSplitter:
+    normalized_ext = file_ext.lower()
+    if normalized_ext == '.py':
+        return PythonCodeSplitter()
+
+    language_name = LANGUAGE_MAP.get(normalized_ext)
+    fallback_splitter = RegexCodeSplitter(normalized_ext)
+    if language_name:
+        return TreeSitterCodeSplitter(language_name, fallback_splitter)
+
+    return fallback_splitter
+
+
+def _legacy_regex_split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 3000):
     """
     根据智能边界分割代码。
     re模式分割
@@ -431,6 +650,9 @@ def split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 30
 
     else:
         return [content]
+
+def split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 3000):
+    return get_code_splitter(file_ext).split(content, max_class_length)
 
 
 def index_repo(repo_path: str = None, persist_dir: str = None):
@@ -479,28 +701,20 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
                         if not doc.page_content.strip():
                             continue
                         ext = os.path.splitext(file)[1]
-                        if ext == '.py':
-                            blocks = extract_python_classes_and_functions(doc.page_content, max_class_length)
-                            for block in blocks:
-                                if block.strip():
-                                    chunk = Document(
-                                        page_content=block,
-                                        metadata={"source": file_path, "type": "code"}
-                                    )
-                                    all_chunks.append(chunk)
-                        else:
-                            blocks = split_by_code_blocks(doc.page_content, ext, max_class_length)
+                        blocks = get_code_splitter(ext).split(doc.page_content, max_class_length)
+                        for block in blocks:
+                            if not block.strip():
+                                continue
 
-                            for block in blocks:
-                                splitter = RecursiveCharacterTextSplitter(
-                                    chunk_size=chunk_size_code,
-                                    chunk_overlap=chunk_overlap
-                                )
-                                chunks = splitter.create_documents(
-                                    [block],
-                                    metadatas=[{"source": file_path, "type": "doc"}]
-                                )
-                                all_chunks.extend(chunks)
+                            splitter = RecursiveCharacterTextSplitter(
+                                chunk_size=chunk_size_code,
+                                chunk_overlap=chunk_overlap
+                            )
+                            chunks = splitter.create_documents(
+                                [block],
+                                metadatas=[{"source": file_path, "type": "code"}]
+                            )
+                            all_chunks.extend(chunks)
 
                 except Exception as e:
                     logger.warning(f"Skipping file {file_path}: {e}")
