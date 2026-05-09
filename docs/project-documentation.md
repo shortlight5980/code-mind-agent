@@ -59,8 +59,10 @@ CodeMind Agent 是一个基于 RAG (检索增强生成) 的代码仓库智能问
 │                      Service Manager (单例)                      │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐ │  │
-│  │  │   Agent      │  │  Summarizer  │  │   Vector DB     │ │  │
+│  │  │   Agent      │  │  Summarizer  │  │ Query Rewriter │ │  │
 │  │  └──────────────┘  └──────────────┘  └─────────────────┘ │  │
+│  │  ┌───────────────────────────────────────────────────┐   │  │
+│  │  │                   Vector DB                       │   │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -142,9 +144,11 @@ class ServiceManager:
         self._init_llm()
         # 3. 初始化总结 LLM
         self._init_summarizer_llm()
-        # 4. 初始化 Agent
+        # 4. 初始化查询改写 LLM
+        self._init_query_rewriting_llm()
+        # 5. 初始化 Agent
         self._init_agent()
-        # 5. 初始化工具的服务引用
+        # 6. 初始化工具的服务引用
         initialize_tool_service_manager(self)
 ```
 
@@ -329,7 +333,104 @@ class CodeMindAgent:
 - 敏感文件: `*.key`, `*.pem`, `*.p12`, `*.pfx`, ...
 - 压缩包: `*.zip`, `*.tar`, `*.rar`, ...
 
-### 3. 检索策略 (Retrieval)
+### 3. 查询改写 (Query Rewriting)
+
+**文件**: `utils/query_rewriting.py`
+
+**为什么需要查询改写？**
+
+| 问题 | 解决方案 |
+|------|---------|
+| 用户问题表述口语化，不匹配代码术语 | 关键词提取+同义转换 |
+| 问题模糊，缺乏检索指向性 | 回答推测提供可能的答案方向 |
+| 直接检索命中率低 | 增强检索文本，提高召回率 |
+
+**查询改写流程**:
+
+```
+用户问题
+   ↓
+┌─────────────────────────────────────────┐
+│  步骤 1: 关键词提取                     │
+│  aget_query_key_words(question, llm)   │
+├─────────────────────────────────────────┤
+│  提示词: "将用户问题转化为几个核心关键词" │
+│  约束: 同义转换、仅中文、逗号分隔        │
+│  输出: ["关键词1", "关键词2", ...]      │
+└─────────────────────────────────────────┘
+   ↓
+┌─────────────────────────────────────────┐
+│  步骤 2: 回答推测                       │
+│  aget_query_answer_guess(question, llm) │
+├─────────────────────────────────────────┤
+│  提示词: "基于问题推测可能的答案"        │
+│  约束: 代码开发领域、模糊问题返回空格    │
+│  输出: "可能的答案内容..."               │
+└─────────────────────────────────────────┘
+   ↓
+┌─────────────────────────────────────────┐
+│  步骤 3: 检索文本构建                   │
+├─────────────────────────────────────────┤
+│  temp_question =                        │
+│    answer_guess +                       │
+│    " 关键词: " + (", ".join(kw) * 3)   │
+│                                         │
+│  * 关键词重复 3 次是为了增加权重         │
+└─────────────────────────────────────────┘
+   ↓
+使用 temp_question 进行向量检索
+```
+
+**核心函数**:
+
+```python
+async def aget_query_key_words(question: str, query_rewriting_llm: ChatTongyi) -> list:
+    """异步获取用户问题的关键词列表"""
+    prompt_template = get_query_rewriting_prompt_template(type="key_words")
+    prompt = prompt_template.format(input=question)
+    response = await query_rewriting_llm.ainvoke(prompt)
+    key_words_str = response.content if hasattr(response, 'content') else str(response)
+    key_words = [kw.strip() for kw in key_words_str.split(",") if kw.strip()]
+    return key_words
+
+async def aget_query_answer_guess(question: str, query_rewriting_llm: ChatTongyi) -> str:
+    """异步获取对用户问题的可能回答推测"""
+    prompt_template = get_query_rewriting_prompt_template(type="answer_guess")
+    prompt = prompt_template.format(input=question)
+    response = await query_rewriting_llm.ainvoke(prompt)
+    answer_guess_str = response.content if hasattr(response, 'content') else str(response)
+    return answer_guess_str.strip()
+
+def create_query_rewriter(model: str = "qwen-max") -> ChatTongyi:
+    """创建查询改写模型实例"""
+    return ChatTongyi(model=model)
+```
+
+**提示词场景** (`prompts/prompt_manager.py`):
+
+| 场景枚举 | 说明 |
+|---------|------|
+| `PromptScenario.QUERY_KEY_WORDS` | 关键词提取提示词 |
+| `PromptScenario.QUERY_ANSWER_GUESS` | 回答推测提示词 |
+
+**关键词提取提示词要点**:
+- 将非常不专业且模糊的词汇转化为开发者领域的相关同义词汇
+- 仅用中文回答
+- 以纯文本字符串形式呈现，关键词仅以英文逗号分隔
+
+**回答推测提示词要点**:
+- 答案必须基于代码开发领域，不做过多发散
+- 如果问题实在模糊无法推测答案，则仅仅返回空格
+- 对于具体的查询问题，不要给出名词解释，而是返回空格
+- 只有用户的问题明确让你解释名词才解释
+
+**配置项**:
+```yaml
+query_rewriting:
+  model: "qwen-turbo"    # 查询改写模型（推荐使用轻量模型）
+```
+
+### 4. 检索策略 (Retrieval)
 
 **文件**: `agent/tools/retrieve_and_summarize.py`
 
@@ -337,6 +438,14 @@ class CodeMindAgent:
 
 ```
 用户问题
+   ↓
+┌─────────────────────────────────────────┐
+│  查询改写增强 (已实现)                  │
+├─────────────────────────────────────────┤
+│  1. 提取关键词                          │
+│  2. 推测答案方向                        │
+│  3. 构建增强检索文本                    │
+└─────────────────────────────────────────┘
    ↓
 ┌─────────────────────────────────────────┐
 │  双层检索 (分开检索，可配置数量)        │
@@ -357,6 +466,45 @@ class CodeMindAgent:
 传递给总结模块
 ```
 
+**RetrieveAndSummarize 工具核心代码**:
+
+```python
+@tool
+async def RetrieveAndSummarize(question: str) -> str:
+    # 1. 获取服务
+    vectordb = _service_manager.vectordb
+    summarizer_llm = _service_manager.summarizer_llm
+    query_rewriting_llm = _service_manager.query_rewriting_llm
+    retrieval_k = _service_manager.retrieval_k
+
+    # 2. 查询改写
+    key_words = await aget_query_key_words(question, query_rewriting_llm)
+    answer_guess = await aget_query_answer_guess(question, query_rewriting_llm)
+    
+    # 3. 构建增强检索文本
+    temp_question = answer_guess + " 关键词: " + (", ".join(key_words) * 3)
+    
+    logger.info("=" * 80)
+    logger.info(f"最终用于检索的文本: {temp_question}")
+    logger.info("=" * 80)
+
+    # 4. 双层检索
+    docs = await vectordb.asimilarity_search(
+        temp_question, k=retrieval_k.get("doc", 5), filter={"type": "doc"}
+    )
+    docs.extend(await vectordb.asimilarity_search(
+        temp_question, k=retrieval_k.get("code", 10), filter={"type": "code"}
+    ))
+
+    # 5. 记录来源信息
+    log_sources_info(docs)
+
+    # 6. 调用总结模块
+    summarized_context = await asummarize_context(question, docs, summarizer_llm)
+
+    return summarized_context
+```
+
 **配置项**:
 ```yaml
 chroma:
@@ -372,7 +520,7 @@ metadata_filter_code = {"type": "code"}
 ```
 
 **TODO 规划** (代码中已标注):
-- Query 优化: Query Rewriting / Decomposition / HyDE
+- Query 优化: Query Decomposition / HyDE (已实现 Query Rewriting)
 - 混合检索: 向量检索 + BM25 检索
 
 ### 4. 总结层 (Summarization)
@@ -693,6 +841,9 @@ llm:
 summarizer:
   model: "qwen-turbo"
   temperature: 0.1
+
+query_rewriting:
+  model: "qwen-turbo"
 
 splitting:
   max_class_length: 3000
@@ -1109,6 +1260,7 @@ pip install -r requirements.txt
 | `utils/config.py` | 配置管理 |
 | `utils/logger.py` | 日志工具 |
 | `utils/summarizer.py` | 总结模块 |
+| `utils/query_rewriting.py` | 查询改写模块 |
 
 ### B. API 完整示例
 
@@ -1178,7 +1330,15 @@ chatStream("这个项目如何使用？");
 
 ## 更新日志
 
-### v0.2.0 (当前)
+### v0.3.0 (当前)
+- ✅ 新增 Query Rewriting 查询改写功能
+- ✅ 新增关键词提取模块
+- ✅ 新增回答推测模块
+- ✅ 新增 PromptScenario 枚举值
+- ✅ 新增 query_rewriting_llm 服务
+- ✅ 优化检索策略，使用增强检索文本
+
+### v0.2.0
 - ✅ 新增 Agent 模式
 - ✅ 新增安全检查模块
 - ✅ 新增流式输出支持
