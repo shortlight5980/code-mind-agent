@@ -26,7 +26,9 @@ from utils.config import Config
 
 logger = get_logger("indexer")
 
-supported_exts = ('.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.go', '.rs', '.c', '.cpp', '.md', '.txt')
+code_exts = ('.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.go', '.rs', '.c', '.cpp')
+doc_exts = ('.md', '.txt')
+supported_exts = code_exts + doc_exts
 
 LANGUAGE_MAP = {
     '.py': 'python',
@@ -178,6 +180,14 @@ def should_exclude_file(filename: str) -> bool:
             return True
 
     return False
+
+
+def is_supported_code_file(filename: str) -> bool:
+    return filename.lower().endswith(code_exts)
+
+
+def is_supported_doc_file(filename: str) -> bool:
+    return filename.lower().endswith(doc_exts)
 
 
 def extract_python_classes_and_functions(content: str, max_class_length: int = 3000):
@@ -754,6 +764,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
     chunk_overlap = Config.get("chroma.chunk_overlap", 100)
     max_class_length = Config.get("splitting.max_class_length", 3000)
     embedding_model = Config.get("embeddings.model", "text-embedding-v4")
+    bm25_persist_path = Config.get("bm25.persist_path", "./bm25_index/index.pkl")
 
     all_chunks = []
 
@@ -769,7 +780,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
             file_path = os.path.join(root, file).replace('\\', '/')
             logger.info(f"Processing file: {file_path}")
 
-            if file.endswith(supported_exts):
+            if is_supported_code_file(file):
                 try:
                     loader = TextLoader(file_path, encoding='utf-8')
                     docs = loader.load()
@@ -825,6 +836,18 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
     if not all_chunks:
         logger.error("No indexable code files found")
         return
+
+    try:
+        from utils.bm25_index import BM25Index
+
+        bm25_index = BM25Index().fit(
+            [chunk.page_content for chunk in all_chunks],
+            [chunk.metadata for chunk in all_chunks],
+        )
+        bm25_index.save(bm25_persist_path)
+        logger.info(f"BM25 index saved to {bm25_persist_path}")
+    except Exception as e:
+        logger.warning(f"Failed to build BM25 index: {e}")
 
     logger.info(f"Total {len(all_chunks)} code chunks, starting vectorization...")
 

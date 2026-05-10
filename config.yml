@@ -10,6 +10,18 @@ chroma:
     docs: 5
     codes: 10
 
+bm25:
+  persist_path: "./bm25_index/index.pkl"
+  retrieval_k:
+    docs: 10
+    codes: 20
+
+retrieval:
+  mode: "hybrid"  # vector / bm25 / hybrid
+  fusion: "rrf"
+  rrf_k: 60
+  identifier_boost: 0.01
+
 # 被索引的代码仓库路径（用于 Agent 工具查找文件）
 repo:
   path: "C:/Users/14144/Desktop/CodeMind/CodeMindAgent"

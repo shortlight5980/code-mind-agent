@@ -224,11 +224,30 @@ class CodeMindAgent:
 
 ### 1. 代码切分策略 (Splitting)
 
-切分是 RAG 系统中最关键的环节之一，直接影响检索质量。CodeMind Agent 采用**语言感知的智能切分策略**。
+切分是 RAG 系统中最关键的环节之一，直接影响检索质量。CodeMind Agent 采用**语言感知的智能切分策略**，支持多种编程语言的 AST 解析。
+
+#### 切分架构设计
+
+```
+CodeSplitter (抽象基类)
+    ├─ PythonCodeSplitter (Python AST)
+    ├─ TreeSitterCodeSplitter (多语言 Tree-sitter AST)
+    └─ RegexCodeSplitter (正则模式，降级方案)
+
+get_code_splitter(file_ext) → 返回适合的切分器
+```
+
+**核心接口**:
+```python
+class CodeSplitter(ABC):
+    @abstractmethod
+    def split(self, content: str, max_class_length: int = 3000) -> list[str]:
+        pass
+```
 
 #### Python: AST 模式切分
 
-**核心函数**: `extract_python_classes_and_functions()`
+**实现**: `PythonCodeSplitter`
 
 **流程**:
 
@@ -267,21 +286,69 @@ class CodeMindAgent:
 | 嵌套结构 | ✅ 正确处理内部类/函数 | ❌ 容易切错边界 |
 | 容错性 | ✅ 有回退机制 | ❌ 无 |
 
-#### 其他语言: 模式匹配切分
+#### 多语言 Tree-sitter AST 切分 (推荐)
 
-**核心函数**: `split_by_code_blocks()`
+**实现**: `TreeSitterCodeSplitter`
+
+**支持语言**:
+
+| 语言 | 文件扩展名 | 类/接口节点类型 | 函数/方法节点类型 |
+|------|----------|----------------|------------------|
+| JavaScript | `.js`, `.jsx` | `class_declaration` | `function_declaration`, `generator_function_declaration`, `arrow_function`, `method_definition` |
+| TypeScript | `.ts`, `.tsx` | `class_declaration` | `function_declaration`, `generator_function_declaration`, `arrow_function`, `method_definition` |
+| Go | `.go` | - | `function_declaration`, `method_declaration` |
+| Rust | `.rs` | `impl_item`, `struct_item` | `function_item` |
+| Java | `.java` | `class_declaration` | `method_declaration` |
+| C | `.c` | - | `function_definition` |
+| C++ | `.cpp` | `class_specifier` | `function_definition` |
+
+**切分流程**:
+
+```
+1. 检查依赖: tree-sitter-languages 是否安装？
+   ├─ 否 → 降级到 RegexCodeSplitter
+   └─ 是 → 继续
+
+2. 构建 Parser: 获取对应语言的 tree-sitter 语言
+
+3. 解析代码: parser.parse(content) → 语法树
+
+4. 提取主要块:
+   ├─ 遍历树收集类/接口节点 (CLASS_CHUNK_TYPES)
+   ├─ 类大小 ≤ max_class_length → 保留完整类
+   ├─ 类大小 > max_class_length → 按方法拆分
+   ├─ 收集独立函数/方法节点 (FUNCTION_CHUNK_TYPES)
+   └─ 跳过已被类包含的函数
+
+5. 合并结果:
+   ├─ 合并类块 + 函数块 + 剩余代码片段
+   ├─ 按字节位置排序
+   └─ 合并相邻片段，去除重复覆盖
+
+6. 降级处理: 如果 Tree-sitter 失败 → RegexCodeSplitter
+```
+
+**Tree-sitter 关键特性**:
+- **语句扩展**: 自动扩展到包含变量声明、export 语句等父节点
+- **片段合并**: 智能合并非结构代码片段，避免碎片化
+- **范围去重**: 精确处理字节范围，避免重复或遗漏
+
+#### 正则模式切分 (降级方案)
+
+**实现**: `RegexCodeSplitter`
 
 | 语言 | 切分模式 (在匹配前切分) |
 |------|----------------------|
 | Java | `public` \| `private` \| `protected` \| `class` \| `interface` |
-| JS/TS | `function` \| `class` \| `const` \| `let` \| `var` |
-| TS额外 | `export` \| `interface` |
+| JS/TS/JSX/TSX | `function` \| `class` \| `const` \| `let` \| `var` \| `export` \| `interface` |
 | Go | `func` \| `type` \| `struct` |
+| Rust | `fn` \| `impl` \| `struct` \| `enum` \| `trait` |
+| C/C++ | 函数定义、类/结构体等 |
 
 #### 普通文档: RecursiveCharacterTextSplitter
 
 - 文档: `chunk_size=800`, `chunk_overlap=100`
-- 非支持语言的代码: `chunk_size=2000`, `chunk_overlap=100`
+- 代码块二次切分: `chunk_size=2000`, `chunk_overlap=100`
 
 ### 2. 索引构建 (Indexing)
 
@@ -302,8 +369,12 @@ class CodeMindAgent:
    └─ 对每个文件:
 
 3. 文件加载和切分
-   ├─ Python: extract_python_classes_and_functions()
-   ├─ 其他支持语言: split_by_code_blocks() + RecursiveCharacterTextSplitter
+   ├─ 获取切分器: get_code_splitter(file_ext)
+   │   ├─ .py → PythonCodeSplitter
+   │   ├─ 其他支持语言 → TreeSitterCodeSplitter (降级到 RegexCodeSplitter)
+   │   └─ 不支持 → RegexCodeSplitter
+   ├─ 调用 splitter.split(content, max_class_length)
+   ├─ 对每个切分块使用 RecursiveCharacterTextSplitter 二次切分
    ├─ 其他文件: should_exclude_file() 判断
    └─ 构建 Document 对象 (page_content + metadata)
 
@@ -312,6 +383,9 @@ class CodeMindAgent:
    ├─ 存入 Chroma DB
    └─ 持久化到磁盘
 ```
+
+**支持的代码文件扩展名**:
+`.py`, `.java`, `.js`, `.jsx`, `.ts`, `.tsx`, `.go`, `.rs`, `.c`, `.cpp`
 
 **排除规则**:
 
@@ -1070,33 +1144,76 @@ def initialize(self) -> None:
 
 ### 添加新的语言切分支持
 
-**步骤**:
+**推荐方式: Tree-sitter AST (如果语言在 tree-sitter-languages 中支持)**:
 
-1. 在 `scripts/index_repo.py` 的 `split_by_code_blocks()` 中添加模式
+1. 在 `LANGUAGE_MAP` 中添加文件扩展名映射
 
 ```python
-def split_by_code_blocks(content: str, file_ext: str, ...):
-    patterns = {
-        # 现有语言...
-        ".java": r"\n(?=public |private |...",
-        ".js": r"\n(?=function |class |...",
-        # 添加新语言
-        ".rust": r"\n(?=fn |struct |enum |impl |pub )",
-    }
+LANGUAGE_MAP = {
+    # 现有语言...
+    ".py": "python",
+    ".js": "javascript",
+    # 添加新语言
+    ".kt": "kotlin",
+}
 ```
 
-2. 在 `supported_exts` 中添加扩展名（如果需要）
+2. 在 `CLASS_CHUNK_TYPES` 和 `FUNCTION_CHUNK_TYPES` 中配置语法节点类型
 
 ```python
-supported_exts = ('.py', '.java', '.js', '.ts', '.go', '.md', '.txt', '.rs')
+CLASS_CHUNK_TYPES = {
+    # 现有语言...
+    "javascript": ["class_declaration"],
+    # 添加新语言
+    "kotlin": ["class_declaration"],
+}
+
+FUNCTION_CHUNK_TYPES = {
+    # 现有语言...
+    "javascript": ["function_declaration", ...],
+    # 添加新语言
+    "kotlin": ["function_declaration", "property_declaration"],
+}
 ```
 
-3. 如果需要特殊处理（类似 Python 的 AST 模式），添加专门函数
+3. 在 `supported_exts` 中添加扩展名（如果需要）
 
 ```python
-def extract_rust_items(content: str):
-    # 使用 syn crate (需要 pyo3) 或正则解析
-    pass
+supported_exts = ('.py', '.java', '.js', '.ts', '.go', '.md', '.txt', '.rs', '.kt')
+```
+
+**备选方式: 正则模式 (Tree-sitter 不支持时)**:
+
+1. 在 `RegexCodeSplitter` 中添加正则模式
+
+```python
+class RegexCodeSplitter(CodeSplitter):
+    def __init__(self, file_ext: str):
+        self.file_ext = file_ext
+        self.patterns = {
+            # 现有语言...
+            ".js": r"\n(?=function |class |...",
+            # 添加新语言
+            ".kt": r"\n(?=fun |class |interface |object |val |var )",
+        }
+        self.indexable_prefixes = {
+            # 配置可索引的前缀
+        }
+```
+
+**完全自定义: 继承 CodeSplitter (需要复杂处理)**:
+
+```python
+class MyLanguageCodeSplitter(CodeSplitter):
+    def split(self, content: str, max_class_length: int = 3000) -> list[str]:
+        # 自定义切分逻辑
+        pass
+
+# 在 get_code_splitter() 中注册
+def get_code_splitter(file_ext: str) -> CodeSplitter:
+    if file_ext == ".myext":
+        return MyLanguageCodeSplitter()
+    # ...
 ```
 
 ### 添加自定义提示词
@@ -1330,7 +1447,16 @@ chatStream("这个项目如何使用？");
 
 ## 更新日志
 
-### v0.3.0 (当前)
+### v0.4.0 (当前)
+- ✅ 新增多语言 Tree-sitter AST 切分支持
+- ✅ 支持 JavaScript, TypeScript, JSX, TSX, Java, Go, Rust, C, C++
+- ✅ 新增统一 `CodeSplitter` 抽象架构
+- ✅ 新增 `PythonCodeSplitter`、`TreeSitterCodeSplitter`、`RegexCodeSplitter`
+- ✅ 新增语言配置: `LANGUAGE_MAP`、`CLASS_CHUNK_TYPES`、`FUNCTION_CHUNK_TYPES`
+- ✅ 自动降级机制 (Tree-sitter → Regex)
+- ✅ 扩展支持的文件扩展名列表
+
+### v0.3.0
 - ✅ 新增 Query Rewriting 查询改写功能
 - ✅ 新增关键词提取模块
 - ✅ 新增回答推测模块

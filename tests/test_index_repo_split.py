@@ -15,27 +15,31 @@ def _install_import_stubs():
         "langchain_chroma": types.ModuleType("langchain_chroma"),
         "langchain_core": types.ModuleType("langchain_core"),
         "langchain_core.documents": types.ModuleType("langchain_core.documents"),
-        "utils": types.ModuleType("utils"),
-        "utils.logger": types.ModuleType("utils.logger"),
-        "utils.config": types.ModuleType("utils.config"),
     }
     stubs["langchain_community.document_loaders"].TextLoader = object
     stubs["langchain_community.embeddings"].DashScopeEmbeddings = object
     stubs["langchain_text_splitters"].RecursiveCharacterTextSplitter = object
     stubs["langchain_chroma"].Chroma = object
     stubs["langchain_core.documents"].Document = object
-    stubs["utils.logger"].get_logger = lambda name: types.SimpleNamespace(warning=lambda *args, **kwargs: None)
-    stubs["utils.config"].Config = object
-    sys.modules.update(stubs)
+    return stubs
 
 
 def _load_index_repo():
-    _install_import_stubs()
-    script_path = Path(__file__).resolve().parents[1] / "scripts" / "index_repo.py"
-    spec = importlib.util.spec_from_file_location("index_repo_for_tests", script_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    stubs = _install_import_stubs()
+    originals = {name: sys.modules.get(name) for name in stubs}
+    sys.modules.update(stubs)
+    try:
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "index_repo.py"
+        spec = importlib.util.spec_from_file_location("index_repo_for_tests", script_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, original in originals.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
 index_repo = _load_index_repo()
@@ -115,6 +119,11 @@ class PythonAstSplitTests(unittest.TestCase):
 
 
 class CodeSplitterStrategyTests(unittest.TestCase):
+    def test_file_type_classification_separates_code_and_docs(self):
+        self.assertTrue(index_repo.is_supported_code_file("service.py"))
+        self.assertTrue(index_repo.is_supported_doc_file("README.md"))
+        self.assertFalse(index_repo.is_supported_code_file("README.md"))
+
     def test_python_strategy_is_selected_and_keeps_existing_behavior(self):
         content = textwrap.dedent(
             '''

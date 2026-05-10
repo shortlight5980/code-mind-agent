@@ -3,12 +3,15 @@
 负责所有服务对象（vectordb、llm、summarizer_llm、agent）的创建、配置和生命周期管理
 """
 from typing import Dict, Any, Optional
+import os
+
 from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_community.chat_models import ChatTongyi
 
 from utils.logger import get_logger
 from utils.config import Config
+from utils.bm25_index import BM25Index
 from utils.query_rewriting import create_query_rewriter
 from utils.summarizer import create_summarizer
 from agent.agent import CodeMindAgent
@@ -57,6 +60,9 @@ class ServiceManager:
         # 初始化向量数据库
         self._init_vectordb()
 
+        # 初始化BM25索引
+        self._init_bm25()
+
         # 初始化主LLM
         self._init_llm()
 
@@ -80,6 +86,11 @@ class ServiceManager:
         persist_dir = Config.get("chroma.persist_dir", "./chroma_db")
         embedding_model = Config.get("embeddings.model", "text-embedding-v4")
         retrieval_k = Config.get("chroma.retrieval_k", {"docs": 5, "codes": 10})
+        bm25_retrieval_k = Config.get("bm25.retrieval_k", {"docs": 10, "codes": 20})
+        retrieval_config = Config.get(
+            "retrieval",
+            {"mode": "hybrid", "fusion": "rrf", "rrf_k": 60, "identifier_boost": 0.0},
+        )
 
         logger.info(f"加载向量数据库: {persist_dir}")
 
@@ -96,7 +107,24 @@ class ServiceManager:
 
         self._services["vectordb"] = vectordb
         self._services["retrieval_k"] = retrieval_k
+        self._services["bm25_retrieval_k"] = bm25_retrieval_k
+        self._services["retrieval_config"] = retrieval_config
         logger.info("向量数据库初始化完成")
+
+    def _init_bm25(self) -> None:
+        """初始化BM25索引。"""
+        persist_path = Config.get("bm25.persist_path", "./bm25_index/index.pkl")
+        if not os.path.exists(persist_path):
+            logger.warning(f"BM25索引不存在，跳过加载: {persist_path}")
+            self._services["bm25_index"] = None
+            return
+
+        try:
+            self._services["bm25_index"] = BM25Index.load(persist_path)
+            logger.info(f"BM25索引加载完成: {persist_path}")
+        except Exception as e:
+            logger.warning(f"BM25索引加载失败，将退回向量检索: {e}")
+            self._services["bm25_index"] = None
 
     def _init_llm(self) -> None:
         """初始化主LLM"""
@@ -211,3 +239,21 @@ class ServiceManager:
     def retrieval_k(self) -> int:
         """检索数量配置"""
         return self._services.get("retrieval_k", {"docs": 5, "codes": 10})
+
+    @property
+    def bm25_index(self) -> Optional[BM25Index]:
+        """BM25索引服务"""
+        return self._services.get("bm25_index")
+
+    @property
+    def bm25_retrieval_k(self) -> dict:
+        """BM25检索数量配置"""
+        return self._services.get("bm25_retrieval_k", {"docs": 10, "codes": 20})
+
+    @property
+    def retrieval_config(self) -> dict:
+        """检索策略配置"""
+        return self._services.get(
+            "retrieval_config",
+            {"mode": "hybrid", "fusion": "rrf", "rrf_k": 60, "identifier_boost": 0.0},
+        )

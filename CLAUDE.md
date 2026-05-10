@@ -4,6 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Common Commands
 
+## Local Shell Notes
+
+- When reading files from PowerShell, explicitly pass an encoding, normally `Get-Content -Encoding UTF8`, because the shell output code page may be GBK while repository files are usually UTF-8.
+- Run Python commands through the `AIP312` conda environment, for example `conda run -n AIP312 python -m unittest discover tests`.
+
 ### Running Tests
 ```bash
 # Run all tests

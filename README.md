@@ -16,7 +16,10 @@
 
 ### ✂️ 智能代码切分
 - **Python**: 基于 AST 的类/函数级别切分
-- **Java/JS/TS/Go**: 基于模式的结构切分
+- **多语言 AST 支持**: 基于 Tree-sitter 的语法感知切分
+  - 支持: JavaScript, TypeScript, JSX, TSX, Java, Go, Rust, C, C++
+  - 按类/函数结构切分，保留完整语法单元
+  - 自动降级到正则模式切分（Tree-sitter 不可用时）
 - 保留完整语法结构，避免破坏代码语义
 
 ### 🔄 查询改写 (Query Rewriting)
@@ -257,10 +260,22 @@ agent:
 4. 超大类按方法进一步拆分
 5. AST 解析失败时回退到缩进扫描模式
 
-#### 其他语言 (模式匹配)
+#### 多语言 Tree-sitter AST 模式 (推荐)
+- **支持语言**: JavaScript, TypeScript, JSX, TSX, Java, Go, Rust, C, C++
+- **架构**: 统一 `CodeSplitter` 抽象，语言特定实现
+- **切分策略**:
+  - 按类/接口/结构体切分（语言特定节点类型）
+  - 按函数/方法切分
+  - 超大类按内部方法进一步拆分
+  - 保留非结构代码片段
+- **降级机制**: Tree-sitter 不可用时 → RegexCodeSplitter
+
+#### 正则模式切分 (降级方案)
 - **Java**: 在 `public`/`private`/`class`/`interface` 前切分
-- **JS/TS**: 在 `function`/`class`/`const`/`export` 前切分
+- **JS/TS/JSX/TSX**: 在 `function`/`class`/`const`/`export` 前切分
 - **Go**: 在 `func`/`type`/`struct` 前切分
+- **Rust**: 在 `fn`/`impl`/`struct`/`enum` 前切分
+- **C/C++**: 在函数定义、类/结构体前切分
 
 ### 检索策略
 - 代码和文档分别检索
@@ -374,7 +389,10 @@ A: 在 `config.yml` 中修改 `embeddings.model` 配置，支持阿里云 DashSc
 A: 可以通过调整 `chroma.chunk_size.code` 和 `splitting.max_class_length` 来改变切分粒度，或者排除不需要的目录/文件。
 
 ### Q: 如何支持更多编程语言？
-A: 在 `scripts/index_repo.py` 中的 `split_by_code_blocks()` 函数添加对应语言的模式匹配规则。
+A: 1. 在 `scripts/index_repo.py` 中:
+   - 添加到 `LANGUAGE_MAP`、`CLASS_CHUNK_TYPES`、`FUNCTION_CHUNK_TYPES`
+   - 或在 `RegexCodeSplitter` 中添加正则模式
+2. 推荐使用 Tree-sitter 语法解析器，通过 `TreeSitterCodeSplitter` 实现
 
 ### Q: 向量数据库占用空间太大？
 A: 可以使用 `scripts/delete_by_file_path.py` 删除不需要的文件索引，或者调整切分策略减少 chunk 数量。
