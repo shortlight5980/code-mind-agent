@@ -4,6 +4,8 @@ import textwrap
 import types
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 
 def _install_import_stubs():
@@ -193,6 +195,116 @@ class CodeSplitterStrategyTests(unittest.TestCase):
 
         self.assertIsInstance(splitter, index_repo.RegexCodeSplitter)
         self.assertEqual([content], splitter.split(content, max_class_length=3000))
+
+    def test_exclude_dirs_keeps_cache_and_packages_as_separate_entries(self):
+        self.assertIn("cache", index_repo.exclude_dirs)
+        self.assertIn("packages", index_repo.exclude_dirs)
+        self.assertNotIn("cachepackages", index_repo.exclude_dirs)
+
+    def test_directory_exclusion_supports_glob_patterns(self):
+        self.assertTrue(index_repo.should_exclude_dir("service.egg-info"))
+        self.assertTrue(index_repo.should_exclude_dir("node_modules"))
+        self.assertFalse(index_repo.should_exclude_dir("src"))
+
+    def test_index_repo_skips_unsupported_non_code_files(self):
+        processed_files = []
+
+        class FakeConfig:
+            bm25_path = "bm25.pkl"
+
+            @staticmethod
+            def load():
+                return None
+
+            @staticmethod
+            def get(key, default=None):
+                values = {
+                    "repo.path": "repo",
+                    "chroma.persist_dir": "db",
+                    "chroma.chunk_size.doc": 800,
+                    "chroma.chunk_size.code": 2000,
+                    "chroma.chunk_overlap": 100,
+                    "splitting.max_class_length": 3000,
+                    "embeddings.model": "model",
+                    "bm25.persist_path": FakeConfig.bm25_path,
+                }
+                return values.get(key, default)
+
+            @staticmethod
+            def get_env(key):
+                return None
+
+        class FakeTextLoader:
+            def __init__(self, path, encoding=None):
+                processed_files.append(path)
+
+            def load(self):
+                return []
+
+        with (
+            patch.object(index_repo, "Config", FakeConfig),
+            patch.object(index_repo, "TextLoader", FakeTextLoader),
+            patch.object(index_repo.os, "walk", return_value=[("repo", [], ["guide.md", "notes.json"])]),
+        ):
+            index_repo.index_repo("repo", "db")
+
+        self.assertEqual(["repo/guide.md"], processed_files)
+
+    def test_code_chunks_use_configured_code_chunk_size(self):
+        class FakeDoc:
+            def __init__(self, page_content, metadata=None):
+                self.page_content = page_content
+                self.metadata = metadata or {}
+
+        class FakeConfig:
+            bm25_path = "bm25.pkl"
+
+            @staticmethod
+            def load():
+                return None
+
+            @staticmethod
+            def get(key, default=None):
+                values = {
+                    "repo.path": "repo",
+                    "chroma.persist_dir": "db",
+                    "chroma.chunk_size.doc": 800,
+                    "chroma.chunk_size.code": 12,
+                    "chroma.chunk_overlap": 100,
+                    "splitting.max_class_length": 3000,
+                    "embeddings.model": "model",
+                    "bm25.persist_path": FakeConfig.bm25_path,
+                }
+                return values.get(key, default)
+
+            @staticmethod
+            def get_env(key):
+                return None
+
+        class FakeTextLoader:
+            def __init__(self, path, encoding=None):
+                pass
+
+            def load(self):
+                return [FakeDoc("def helper():\n    return 'abcdefghijklmnopqrstuvwxyz'")]
+
+        captured_chunks = []
+
+        def fake_document(page_content, metadata):
+            captured_chunks.append(page_content)
+            return FakeDoc(page_content, metadata)
+
+        with TemporaryDirectory() as temp_dir:
+            FakeConfig.bm25_path = str(Path(temp_dir) / "bm25.pkl")
+            with (
+                patch.object(index_repo, "Config", FakeConfig),
+                patch.object(index_repo, "TextLoader", FakeTextLoader),
+                patch.object(index_repo, "Document", fake_document),
+                patch.object(index_repo.os, "walk", return_value=[("repo", [], ["service.py"])]),
+            ):
+                index_repo.index_repo("repo", temp_dir)
+
+        self.assertEqual(["def helper()"], captured_chunks)
 
 
 if __name__ == "__main__":

@@ -214,6 +214,18 @@ const after = 2;
         self.assertTrue(blocks[2].startswith("stop()"))
         self.assertEqual("const after = 2;", blocks[3])
 
+    def test_non_ascii_prefix_does_not_corrupt_tree_sitter_chunks(self):
+        content = """
+// 中文注释
+function greet() {
+  return "hello";
+}
+""".strip()
+
+        blocks = self._split_without_fallback("javascript", content)
+
+        self.assertEqual(["// 中文注释", 'function greet() {\n  return "hello";\n}'], blocks)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -260,6 +260,9 @@ class BM25Index:
 
             # 忽略分数 <= 0 的结果
             if score <= 0:
+                score = self._lexical_overlap_score(query_tokens, index)
+
+            if score <= 0:
                 continue
 
             candidates.append((self.documents[index], metadata, float(score)))
@@ -267,6 +270,14 @@ class BM25Index:
         # 按分数降序排列，取 top-k
         candidates.sort(key=lambda item: item[2], reverse=True)
         return candidates[:k]
+
+    def _lexical_overlap_score(self, query_tokens: list[str], index: int) -> float:
+        """Return a fallback score for exact token matches when BM25 IDF is zero."""
+        if index >= len(self._tokenized_documents):
+            return 0.0
+
+        frequencies = Counter(self._tokenized_documents[index])
+        return float(sum(frequencies.get(token, 0) for token in query_tokens))
 
     def save(self, path: str):
         """

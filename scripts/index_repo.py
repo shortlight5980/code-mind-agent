@@ -95,7 +95,7 @@ exclude_dirs = {
     '*.swp', '*.swo', '*~', '#*#', '.DS_Store', 'Thumbs.db',
 
     # 数据库和缓存
-    'chroma_db', 'logs', 'log', 'tmp', 'temp', '.cache', 'cache'
+    'chroma_db', 'logs', 'log', 'tmp', 'temp', '.cache', 'cache',
 
     # 其他常见构建/依赖目录
     'packages', '.next', 'nuxt', '.nuxt', '.output',
@@ -178,6 +178,18 @@ def should_exclude_file(filename: str) -> bool:
 
     for pattern in exclude_file_patterns:
         if fnmatch.fnmatch(filename, pattern):
+            return True
+
+    return False
+
+
+def should_exclude_dir(dirname: str) -> bool:
+    """检查是否应该根据目录名或 glob 模式排除目录"""
+    if dirname in exclude_dirs:
+        return True
+
+    for pattern in exclude_dirs:
+        if fnmatch.fnmatch(dirname, pattern):
             return True
 
     return False
@@ -558,6 +570,9 @@ class TreeSitterCodeSplitter(CodeSplitter):
         _, _, chunk = self._expanded_chunk(content, node)
         return chunk
 
+    def _slice_bytes(self, content_bytes: bytes, start_byte: int, end_byte: int) -> str:
+        return content_bytes[start_byte:end_byte].decode('utf-8', errors='ignore').strip()
+
     def _expanded_chunk(self, content: str, node) -> tuple[int, int, str]:
         """
         计算节点在源码中的扩展字节范围及对应的代码文本。
@@ -586,7 +601,8 @@ class TreeSitterCodeSplitter(CodeSplitter):
             end_byte = max(end_byte, parent.end_byte)
             parent = parent.parent
 
-        return start_byte, end_byte, content[start_byte:end_byte].strip()
+        content_bytes = content.encode('utf-8')
+        return start_byte, end_byte, self._slice_bytes(content_bytes, start_byte, end_byte)
 
     def _extract_priority_chunks(
         self,
@@ -771,6 +787,7 @@ class TreeSitterCodeSplitter(CodeSplitter):
         # 按源码顺序重新拼接：
         # 1. 保留主结构块
         # 2. 补回主结构之间未覆盖的 import、常量、注释等零散片段
+        content_bytes = content.encode('utf-8')
         sorted_chunks = sorted(primary_chunks, key=lambda item: (item[0], item[1]))
         sorted_covered_ranges = sorted(covered_ranges)
         merged = []
@@ -780,21 +797,21 @@ class TreeSitterCodeSplitter(CodeSplitter):
             if start_byte < cursor:
                 continue
 
-            fragment_start = self._skip_covered_ranges(cursor, start_byte, sorted_covered_ranges, merged, content)
-            self._append_fragment(merged, content[fragment_start:start_byte])
+            fragment_start = self._skip_covered_ranges(cursor, start_byte, sorted_covered_ranges, merged, content_bytes)
+            self._append_fragment(merged, self._slice_bytes(content_bytes, fragment_start, start_byte))
             if chunk.strip():
                 merged.append(chunk)
             cursor = max(cursor, end_byte)
 
-        fragment_start = self._skip_covered_ranges(cursor, len(content), sorted_covered_ranges, merged, content)
-        self._append_fragment(merged, content[fragment_start:])
+        fragment_start = self._skip_covered_ranges(cursor, len(content_bytes), sorted_covered_ranges, merged, content_bytes)
+        self._append_fragment(merged, self._slice_bytes(content_bytes, fragment_start, len(content_bytes)))
         return merged
 
     def _append_fragment(self, chunks: list[str], fragment: str):
         """
         清理并添加零散代码片段到结果列表中。
 
-        仅当片段去除空白后非空且包含至少一个单词字符（\w）时才添加，
+        仅当片段去除空白后非空且包含至少一个单词字符（\\w）时才添加，
         以过滤掉纯空白行或纯符号的行。
 
         Args:
@@ -811,7 +828,7 @@ class TreeSitterCodeSplitter(CodeSplitter):
         end: int,
         covered_ranges: list[tuple[int, int]],
         chunks: list[str],
-        content: str,
+        content: bytes,
     ) -> int:
         """
         跳过已被覆盖的字节范围，并提取中间未覆盖的片段。
@@ -837,7 +854,7 @@ class TreeSitterCodeSplitter(CodeSplitter):
             if covered_start >= end:
                 break
             if cursor < covered_start:
-                self._append_fragment(chunks, content[cursor:min(covered_start, end)])
+                self._append_fragment(chunks, self._slice_bytes(content, cursor, min(covered_start, end)))
             cursor = max(cursor, covered_end)
             if cursor >= end:
                 break
@@ -940,6 +957,10 @@ def split_by_code_blocks(content: str, file_ext: str, max_class_length: int = 30
     return get_code_splitter(file_ext).split(content, max_class_length)
 
 
+def extract_python_classes_and_functions(content: str, max_class_length: int = 3000):
+    return PythonCodeSplitter().extract_python_classes_and_functions(content, max_class_length)
+
+
 def index_repo(repo_path: str = None, persist_dir: str = None):
     """
     索引代码库到矢量数据库。
@@ -967,10 +988,11 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
 
     logger.info(f"Starting repository scan: {repo_path}")
 
-    for root, _, files in os.walk(repo_path):
+    for root, dirs, files in os.walk(repo_path):
         # 目录级过滤优先做，避免进入依赖、构建产物和版本控制目录。
+        dirs[:] = [dirname for dirname in dirs if not should_exclude_dir(dirname)]
         path_parts = root.replace('\\', '/').split('/')
-        if any(part in exclude_dirs for part in path_parts):
+        if any(should_exclude_dir(part) for part in path_parts):
             continue
 
         for file in files:
@@ -992,7 +1014,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
                         for block in blocks:
                             if block.strip() and len(block.strip()) > 5:
                                 chunk = Document(
-                                    page_content=block[:2000],
+                                    page_content=block[:chunk_size_code],
                                     metadata={"source": file_path, "type": "code"}
                                 )
                                 all_chunks.append(chunk)
@@ -1002,7 +1024,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
 
             else:
                 # 其余文件不做代码结构解析，只按普通文本处理。
-                if should_exclude_file(file):
+                if not is_supported_doc_file(file) or should_exclude_file(file):
                     logger.info(f"Skip file {file_path}")
                     continue
 
@@ -1026,7 +1048,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
                     logger.warning(f"Skipping file {file_path}: {e}")
 
     if not all_chunks:
-        logger.error("No indexable code files found")
+        logger.error("No indexable files found")
         return
 
     try:
