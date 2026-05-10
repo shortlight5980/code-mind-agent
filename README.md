@@ -10,9 +10,11 @@
 - 集成多种代码分析工具
 
 ### 🔍 智能代码检索
-- 基于语义的向量检索
-- 支持代码和文档分开检索
-- 使用阿里云 `text-embedding-v4` 模型
+- **混合检索**: 语义向量检索 + BM25 关键词检索双路并行
+- **RRF 融合**: 使用 Reciprocal Rank Fusion 算法智能融合两路结果
+- **标识符增强**: 可选对查询中的代码标识符进行匹配增强
+- **三种模式**: 支持纯向量、纯 BM25、混合检索三种模式可配置
+- **支持代码和文档分开检索**: 使用阿里云 `text-embedding-v4` 模型
 
 ### ✂️ 智能代码切分
 - **Python**: 基于 AST 的类/函数级别切分
@@ -144,7 +146,9 @@ CodeMindAgent/
 │   ├── config.py            # 配置管理
 │   ├── logger.py            # 日志工具
 │   ├── summarizer.py        # 总结模块
-│   └── query_rewriting.py   # 查询改写模块
+│   ├── query_rewriting.py   # 查询改写模块
+│   ├── bm25_index.py        # BM25 关键词索引
+│   └── fusion.py            # 结果融合模块 (RRF)
 ├── app.py                   # FastAPI 主应用
 ├── config.yml               # 配置文件
 └── requirements.txt         # 依赖列表
@@ -162,8 +166,20 @@ chroma:
     code: 2000                        # 代码切分大小 (字符)
   chunk_overlap: 100                  # 切分重叠大小
   retrieval_k:
-    docs: 5                           # 检索文档数量
-    codes: 10                         # 检索代码数量
+    docs: 5                           # 向量检索文档数量
+    codes: 10                         # 向量检索代码数量
+
+bm25:
+  persist_path: "./bm25_index/index.pkl"  # BM25 索引存储位置
+  retrieval_k:
+    docs: 10                          # BM25 检索文档数量
+    codes: 20                         # BM25 检索代码数量
+
+retrieval:
+  mode: "hybrid"                      # 检索模式: vector / bm25 / hybrid
+  fusion: "rrf"                       # 融合算法: rrf (当前仅支持 RRF)
+  rrf_k: 60                           # RRF 算法 k 参数 (默认 60)
+  identifier_boost: 0.01              # 标识符匹配增强权重 (0 表示禁用)
 
 repo:
   path: "/path/to/repo"               # 被索引仓库路径
@@ -218,12 +234,25 @@ agent:
 
 ### RAG 流程
 ```
-用户问题 → 查询改写 → 向量检索 → 结果总结 → Agent 回答
-           ↑    ↓
-    关键词提取 + 回答推测
-           ↑
-      代码/文档切分 → 向量化 → Chroma 存储
+用户问题 → 查询改写 → 混合检索 → 结果融合 → 结果总结 → Agent 回答
+           ↑    ↓          ↓
+    关键词提取 + 回答推测  ├─ 向量检索 (Chroma)
+           ↑                └─ BM25 关键词检索
+      代码/文档切分 → ├─ 向量化 → Chroma 存储
+                      └─ 构建 BM25 索引
 ```
+
+### 混合检索策略
+- **双路检索**: 向量检索 + BM25 关键词检索并行执行
+- **RRF 融合**: 使用 Reciprocal Rank Fusion 算法融合两路结果
+- **分开处理**: doc 和 code 两类文档分开检索、分开融合，保证比例
+- **可配置**: 支持 `vector` / `bm25` / `hybrid` 三种模式切换
+
+#### RRF (Reciprocal Rank Fusion) 算法
+- 对每个结果列表，按排名计算分数: `score = 1 / (k + rank)`
+- 同一文档在多个列表中的分数累加
+- 按最终分数重新排序
+- 默认 `k=60` (经验值)
 
 ### 查询改写流程
 ```
@@ -395,7 +424,25 @@ A: 1. 在 `scripts/index_repo.py` 中:
 2. 推荐使用 Tree-sitter 语法解析器，通过 `TreeSitterCodeSplitter` 实现
 
 ### Q: 向量数据库占用空间太大？
-A: 可以使用 `scripts/delete_by_file_path.py` 删除不需要的文件索引，或者调整切分策略减少 chunk 数量。
+A: 可以使用 `scripts/delete_by_file_path.py` 删除不需要的文件索引（会同时删除 Chroma 和 BM25 索引），或者调整切分策略减少 chunk 数量。
+
+### Q: 如何切换检索模式？
+A: 在 `config.yml` 中修改 `retrieval.mode` 配置：
+- `vector`: 纯向量检索
+- `bm25`: 纯 BM25 关键词检索
+- `hybrid`: 混合检索（默认）
+
+### Q: BM25 索引是什么？需要手动构建吗？
+A: BM25 是传统的关键词检索算法，用于补充语义检索的不足。
+- 不需要手动构建：运行 `scripts/index_repo.py` 时会自动构建
+- 索引存储在 `bm25.persist_path` 指定的路径
+- 删除时会同步删除：`scripts/delete_by_file_path.py` 会同时删除两类索引
+
+### Q: 什么是标识符增强？
+A: 标识符增强是对代码标识符（变量名、函数名等）的额外匹配增强。
+- 启用：设置 `retrieval.identifier_boost > 0` (如 0.01)
+- 作用：如果文档包含查询中的标识符，会获得额外加分
+- 适用场景：精确查找特定函数、类名时
 
 ## 许可证
 

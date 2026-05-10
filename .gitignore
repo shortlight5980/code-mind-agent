@@ -26,3 +26,6 @@ build/
 # 日志
 logs/
 *.log
+
+
+bm25_index/

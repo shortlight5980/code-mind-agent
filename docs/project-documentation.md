@@ -24,10 +24,11 @@ CodeMind Agent 是一个基于 RAG (检索增强生成) 的代码仓库智能问
 
 1. **智能 Agent 模式**：自主决定何时使用检索工具，无需手动触发
 2. **结构化代码切分**：基于 AST 和语法模式的智能切分，保留代码语义
-3. **双层检索策略**：代码和文档分开检索，可配置不同数量
-4. **总结层优化**：检索结果先经过 LLM 总结，减少 Token 消耗
-5. **流式输出**：支持流式和非流式两种输出模式
-6. **安全防护**：完善的路径、文件、命令安全检查机制
+3. **混合检索策略**：向量检索 + BM25 关键词检索双路并行，RRF 融合
+4. **双层检索策略**：代码和文档分开检索，可配置不同数量
+5. **总结层优化**：检索结果先经过 LLM 总结，减少 Token 消耗
+6. **流式输出**：支持流式和非流式两种输出模式
+7. **安全防护**：完善的路径、文件、命令安全检查机制
 
 ### 技术栈
 
@@ -61,8 +62,13 @@ CodeMind Agent 是一个基于 RAG (检索增强生成) 的代码仓库智能问
 │  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐ │  │
 │  │  │   Agent      │  │  Summarizer  │  │ Query Rewriter │ │  │
 │  │  └──────────────┘  └──────────────┘  └─────────────────┘ │  │
-│  │  ┌───────────────────────────────────────────────────┐   │  │
-│  │  │                   Vector DB                       │   │  │
+│  │  ┌─────────────────────────────────────────────────────────┐│
+│  │  │              检索层 (Retrieval Layer)                    ││
+│  │  │  ┌─────────────────────────────────────────────────┐   ││
+│  │  │  │  向量检索      │      BM25 检索                │   ││
+│  │  │  └─────────────────────────────────────────────────┘   ││
+│  │  │              ↓  RRF 融合  ↓                            ││
+│  │  └─────────────────────────────────────────────────────────┘│
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -73,13 +79,14 @@ CodeMind Agent 是一个基于 RAG (检索增强生成) 的代码仓库智能问
 │  - agent.py     │  │  - prompt_mgr  │  │  - indexer      │
 │  - security.py  │  │                 │  │  - context_builder│
 │  - streaming.py │  │                 │  │  - summarizer   │
-│  - tools/*      │  │                 │  │                 │
+│  - tools/*      │  │                 │  │  - fusion       │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
-                                                               │
-                                                               ▼
-                                                    ┌─────────────────┐
-                                                    │  Chroma DB      │
-                                                    └─────────────────┘
+                              │
+              ┌─────────────────┼─────────────────┐
+              ▼                 ▼                 ▼
+      ┌─────────────┐   ┌─────────────┐  ┌─────────────┐
+      │ Chroma DB   │   │ BM25 Index  │  │  (更多...)  │
+      └─────────────┘   └─────────────┘  └─────────────┘
 ```
 
 ### 请求处理流程
@@ -382,6 +389,11 @@ class CodeSplitter(ABC):
    ├─ DashScopeEmbeddings.embed_documents()
    ├─ 存入 Chroma DB
    └─ 持久化到磁盘
+
+5. 构建 BM25 索引
+   ├─ 收集所有切分块 (content + metadata)
+   ├─ BM25Index.fit() 构建索引
+   └─ 保存到 bm25.persist_path
 ```
 
 **支持的代码文件扩展名**:
@@ -1456,7 +1468,255 @@ chatStream("这个项目如何使用？");
 - ✅ 自动降级机制 (Tree-sitter → Regex)
 - ✅ 扩展支持的文件扩展名列表
 
-### v0.3.0
+### 4. BM25 关键词索引 (BM25 Index)
+
+**文件**: `utils/bm25_index.py`
+
+**为什么需要 BM25 检索？**
+
+| 问题 | 向量检索 | BM25 检索 |
+|------|---------|----------|
+| 精确标识符匹配 | ❌ 语义接近但不精确 | ✅ 精确匹配标识符 |
+| 特定函数/类名查找 | ❌ 可能被相似语义淹没 | ✅ 关键词精确命中 |
+| 索引新增/删除成本 | ⚠️ 需要重新向量化 | ✅ 快速更新 |
+
+**BM25 算法原理**:
+
+BM25 是一种基于概率的信息检索算法，核心公式：
+```
+score(D, Q) = Σ [ IDF(q) × ( f(q,D) × (k1 + 1) ) / ( f(q,D) + k1 × (1 - b + b × |D| / avgdl) ) ]
+```
+
+其中：
+- `IDF(q)`: 查询词 q 的逆文档频率
+- `f(q,D)`: 查询词 q 在文档 D 中的词频
+- `|D|`: 文档 D 的长度
+- `avgdl`: 平均文档长度
+- `k1`, `b`: 可调参数 (默认 k1=1.5, b=0.75)
+
+**分词策略**:
+
+```
+原始文本
+   ↓
+按正则提取 token: [A-Za-z0-9_]+ 或 [\u4e00-\u9fff]
+   ↓
+Token 小写化
+   ↓
+拆分下划线命名: user_id → user, id
+   ↓
+拆分驼峰命名: UserService → User, Service
+   ↓
+最终 token 列表
+```
+
+**核心类**: `BM25Index`
+
+```python
+class BM25Index:
+    def fit(self, documents: list[str], metadatas: list[dict]) -> BM25Index
+        """构建 BM25 索引"""
+        
+    def search(self, query: str, k: int = 10, filter_type: str | None = None) -> list[tuple]
+        """检索，支持按 metadata.type 过滤"""
+        
+    def delete_by_sources(self, sources: list[str]) -> int
+        """按 metadata.source 删除文档并重建索引"""
+        
+    def save(self, path: str)
+        """保存索引（仅保存原始文档和 metadata）"""
+        
+    @classmethod
+    def load(cls, path: str) -> BM25Index
+        """加载索引并重建 BM25 结构"""
+```
+
+**索引持久化设计**:
+
+- 只保存原始文档和 metadata，不保存 BM25 中间计算结果
+- 加载时自动重建 BM25 结构
+- 优点: 向前兼容，节省磁盘，便于更新算法
+
+**降级机制**:
+
+```
+BM25Index.fit()
+   ↓
+检查: rank_bm25 库是否可用？
+   ├─ 是 → 使用 RankBM25Okapi
+   └─ 否 → 使用 SimpleBM25Okapi (纯 Python 实现)
+```
+
+### 5. 混合检索与 RRF 融合 (Hybrid Retrieval)
+
+**文件**: `utils/fusion.py`, `agent/tools/retrieve_and_summarize.py`
+
+**混合检索架构**:
+
+```
+查询文本
+   ↓
+   ├─────────────────────┬─────────────────────┐
+   ↓                     ↓                     ↓
+向量检索            BM25 检索            (可选)
+   ↓                     ↓                     ↓
+vector_docs          bm25_docs          (其他检索...)
+vector_codes         bm25_codes
+   ↓                     ↓                     ↓
+   └─────────────────────┴─────────────────────┘
+                       ↓
+              RRF 融合 (分开融合 doc/code)
+                       ↓
+              fused_docs + fused_codes
+                       ↓
+              截断到目标数量
+```
+
+**三种检索模式** (`retrieval.mode`):
+
+| 模式 | 说明 | 适用场景 |
+|------|------|---------|
+| `vector` | 仅使用向量检索 | 语义理解为主，模糊查询 |
+| `bm25` | 仅使用 BM25 检索 | 精确查找函数/类名 |
+| `hybrid` | 混合检索 + RRF 融合 (默认) | 平衡语义和精确匹配 |
+
+**RRF (Reciprocal Rank Fusion) 算法**:
+
+**为什么 RRF？**
+- 无需训练，超参数少 (仅 k)
+- 对不同量级的分数不敏感
+- 效果稳定，业界广泛使用
+
+**算法流程**:
+```
+1. 对每个结果列表 S_i:
+   - 对每个结果 item 在 S_i 中的排名 rank
+   - 计算 score = 1 / (rrf_k + rank)
+   - 累加相同 item 的分数
+
+2. (可选) 标识符增强:
+   - 如果 item 包含查询中的标识符
+   - 额外加 identifier_boost 分
+
+3. 按最终分数降序排序
+```
+
+**实现细节**:
+
+```python
+def rrf_fuse(
+    ranked_lists: list[list[Any]],  # 多个结果列表
+    rrf_k: int = 60,
+    identifier_query: str | None = None,
+    identifier_boost: float = 0.0
+) -> list[dict[str, Any]]
+```
+
+**去重策略**:
+
+使用 `(source_path, content_sha1)` 作为唯一键:
+- `source_path`: metadata.source (文件路径)
+- `content_sha1`: 内容的 SHA1 哈希
+
+这样可以正确处理:
+- 同一文件的同一内容 → 完全相同，合并
+- 同一文件的不同版本 → 不同哈希，保留
+- 不同文件的相同内容 → 不同路径，都保留
+
+**混合检索流程** (`_retrieve_documents()`):
+
+```
+1. 读取配置:
+   - retrieval.mode
+   - retrieval_k (向量检索数量)
+   - bm25_retrieval_k (BM25 检索数量)
+
+2. 向量检索 (mode 为 vector/hybrid):
+   - doc 检索: retrieval_k.docs
+   - code 检索: retrieval_k.codes
+
+3. BM25 检索 (mode 为 bm25/hybrid):
+   - doc 检索: bm25_retrieval_k.docs
+   - code 检索: bm25_retrieval_k.codes
+
+4. 根据 mode 决定返回:
+   - bm25: 仅返回 BM25 结果
+   - vector: 仅返回向量结果
+   - hybrid: RRF 融合后返回
+
+5. 融合设计:
+   - doc 和 code 分开融合
+   - 融合后各自截断到目标数量
+   - 保证 doc/code 比例
+```
+
+**Service Manager 集成**:
+
+```python
+class ServiceManager:
+    @property
+    def bm25_index(self) -> BM25Index | None
+        """BM25 索引服务（索引不存在时为 None）"""
+    
+    @property
+    def bm25_retrieval_k(self) -> dict
+        """BM25 检索数量配置"""
+    
+    @property
+    def retrieval_config(self) -> dict
+        """检索策略配置 (mode, rrf_k, identifier_boost)"""
+```
+
+### 6. 索引删除 (Delete Index)
+
+**文件**: `scripts/delete_by_file_path.py`
+
+**功能**: 同时删除 Chroma 向量索引和 BM25 关键词索引
+
+**删除流程**:
+
+```
+1. 收集目标文件路径:
+   - 如果是文件: 标准化路径
+   - 如果是目录: 递归遍历所有文件
+
+2. 从 Chroma 中删除:
+   - 批量查询: where {"$or": [{"source": src1}, {"source": src2}, ...]}
+   - 批量删除: vectordb.delete(ids=...)
+
+3. 从 BM25 中删除:
+   - 加载 BM25 索引
+   - 调用 bm25_index.delete_by_sources(sources)
+   - 保存更新后的索引
+```
+
+**使用示例**:
+
+```bash
+# 删除单个文件
+python scripts/delete_by_file_path.py /path/to/file.py
+
+# 删除整个目录
+python scripts/delete_by_file_path.py /path/to/directory
+```
+
+---
+
+### v0.5.0 (当前)
+- ✅ 新增 BM25 关键词索引
+- ✅ 新增混合检索模式 (vector + BM25)
+- ✅ 新增 RRF (Reciprocal Rank Fusion) 结果融合算法
+- ✅ 新增标识符匹配增强功能
+- ✅ 新增 `utils/bm25_index.py` 模块
+- ✅ 新增 `utils/fusion.py` 模块
+- ✅ 更新 `index_repo.py` 同时构建 BM25 索引
+- ✅ 更新 `delete_by_file_path.py` 同时删除两类索引
+- ✅ 更新 `ServiceManager` 集成 BM25 服务
+- ✅ 更新 `RetrieveAndSummarize` 工具支持混合检索
+- ✅ 新增 `config.yml` 配置项: `bm25.*`, `retrieval.*`
+- ✅ 新增完整测试覆盖
+
+### v0.4.0
 - ✅ 新增 Query Rewriting 查询改写功能
 - ✅ 新增关键词提取模块
 - ✅ 新增回答推测模块
