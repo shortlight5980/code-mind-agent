@@ -14,14 +14,17 @@
 - **RRF 融合**: 使用 Reciprocal Rank Fusion 算法智能融合两路结果
 - **标识符增强**: 可选对查询中的代码标识符进行匹配增强
 - **三种模式**: 支持纯向量、纯 BM25、混合检索三种模式可配置
-- **支持代码和文档分开检索**: 使用阿里云 `text-embedding-v4` 模型
+- **支持代码和文档分开检索**: 使用阿里云 `text-embedding-v1` 模型
+- **BM25 词面兜底**: 当 BM25 的 IDF 得分为 0 但查询词确实命中内容时，使用词频重合分数保留结果
 
 ### ✂️ 智能代码切分
 - **Python**: 基于 AST 的类/函数级别切分
 - **多语言 AST 支持**: 基于 Tree-sitter 的语法感知切分
   - 支持: JavaScript, TypeScript, JSX, TSX, Java, Go, Rust, C, C++
   - 按类/函数结构切分，保留完整语法单元
+  - 使用字节范围合并结构块和零散片段，避免多字节字符导致切片错位
   - 自动降级到正则模式切分（Tree-sitter 不可用时）
+- **索引范围过滤**: 遍历时提前跳过依赖、缓存、构建产物等目录，只索引支持的代码和文档文件
 - 保留完整语法结构，避免破坏代码语义
 
 ### 🔄 查询改写 (Query Rewriting)
@@ -67,6 +70,12 @@ repo:
 
 ```bash
 python scripts/index_repo.py
+```
+
+也可以显式指定仓库路径和向量库目录：
+
+```bash
+python scripts/index_repo.py /path/to/repo --persist-dir ./chroma_db
 ```
 
 ### 启动服务
@@ -185,7 +194,7 @@ repo:
   path: "/path/to/repo"               # 被索引仓库路径
 
 embeddings:
-  model: "text-embedding-v4"          # 嵌入模型
+  model: "text-embedding-v1"          # 嵌入模型
 
 llm:
   model: "qwen-max"                   # 主 LLM 模型
@@ -242,11 +251,14 @@ agent:
                       └─ 构建 BM25 索引
 ```
 
+总结层会在输出末尾附带与问题相关的来源文件路径，便于继续定位原始材料；如果文档内容和实际代码不一致，以实际代码为准。
+
 ### 混合检索策略
 - **双路检索**: 向量检索 + BM25 关键词检索并行执行
 - **RRF 融合**: 使用 Reciprocal Rank Fusion 算法融合两路结果
 - **分开处理**: doc 和 code 两类文档分开检索、分开融合，保证比例
 - **可配置**: 支持 `vector` / `bm25` / `hybrid` 三种模式切换
+- **词面兜底**: 当小语料或常见词导致 BM25 IDF 为 0 时，按查询 token 在文档中的出现次数给出兜底分数
 
 #### RRF (Reciprocal Rank Fusion) 算法
 - 对每个结果列表，按排名计算分数: `score = 1 / (k + rank)`
@@ -297,6 +309,7 @@ agent:
   - 按函数/方法切分
   - 超大类按内部方法进一步拆分
   - 保留非结构代码片段
+  - 使用 UTF-8 字节范围处理 Tree-sitter 节点，适配包含中文等多字节字符的源码
 - **降级机制**: Tree-sitter 不可用时 → RegexCodeSplitter
 
 #### 正则模式切分 (降级方案)
@@ -310,6 +323,12 @@ agent:
 - 代码和文档分别检索
 - 可配置不同检索数量
 - 使用元数据过滤器区分类型
+
+### 索引策略
+- 遍历目录时会原地过滤 `.git`、依赖目录、缓存目录、构建产物等，避免进入无关目录
+- 代码文件按语义块生成 `Document`，单个代码块按 `chroma.chunk_size.code` 截断，不再对代码块做二次递归切分
+- 文档文件继续使用 `RecursiveCharacterTextSplitter`，遵循 `chroma.chunk_size.doc` 和 `chroma.chunk_overlap`
+- Chroma 写入按 1024 条文档分批处理，降低大仓库索引时的内存和 API 超时风险
 
 ## API 文档
 
@@ -415,7 +434,7 @@ pm.add_custom_prompt(
 A: 在 `config.yml` 中修改 `embeddings.model` 配置，支持阿里云 DashScope 的所有嵌入模型。
 
 ### Q: 索引速度慢怎么办？
-A: 可以通过调整 `chroma.chunk_size.code` 和 `splitting.max_class_length` 来改变切分粒度，或者排除不需要的目录/文件。
+A: 可以通过调整 `chroma.chunk_size.code` 和 `splitting.max_class_length` 来改变切分粒度，或者把不需要的目录/文件加入排除规则。索引脚本已经会提前跳过常见依赖、缓存和构建目录，并按 1024 条文档分批写入 Chroma。
 
 ### Q: 如何支持更多编程语言？
 A: 1. 在 `scripts/index_repo.py` 中:
@@ -436,6 +455,7 @@ A: 在 `config.yml` 中修改 `retrieval.mode` 配置：
 A: BM25 是传统的关键词检索算法，用于补充语义检索的不足。
 - 不需要手动构建：运行 `scripts/index_repo.py` 时会自动构建
 - 索引存储在 `bm25.persist_path` 指定的路径
+- 小语料或常见词导致 BM25 得分为 0 时，会使用查询词词频重合作为兜底分数
 - 删除时会同步删除：`scripts/delete_by_file_path.py` 会同时删除两类索引
 
 ### Q: 什么是标识符增强？

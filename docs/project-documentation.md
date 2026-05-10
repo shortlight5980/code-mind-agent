@@ -36,7 +36,7 @@ CodeMind Agent 是一个基于 RAG (检索增强生成) 的代码仓库智能问
 |------|---------|------|
 | Web 框架 | FastAPI | 高性能异步 Web 框架 |
 | LLM | 阿里云 Qwen | qwen-max / qwen-turbo |
-| Embedding | 阿里云 DashScope | text-embedding-v4 |
+| Embedding | 阿里云 DashScope | text-embedding-v1 |
 | Vector DB | Chroma | 轻量级向量数据库 |
 | Orchestration | LangChain | LLM 应用开发框架 |
 | 配置管理 | YAML + python-dotenv | 支持环境变量和配置文件 |
@@ -355,7 +355,7 @@ class CodeSplitter(ABC):
 #### 普通文档: RecursiveCharacterTextSplitter
 
 - 文档: `chunk_size=800`, `chunk_overlap=100`
-- 代码块二次切分: `chunk_size=2000`, `chunk_overlap=100`
+- 代码: 先按语义块切分，再按 `chunk_size.code` 截断单个代码块；不再对代码块做二次递归切分
 
 ### 2. 索引构建 (Indexing)
 
@@ -371,7 +371,7 @@ class CodeSplitter(ABC):
    └─ 嵌入模型
 
 2. 遍历文件 (os.walk)
-   ├─ 跳过排除目录 (.git, node_modules, __pycache__, ...)
+   ├─ 原地过滤排除目录 (.git, node_modules, __pycache__, cache, ...)
    ├─ 检查文件扩展名
    └─ 对每个文件:
 
@@ -379,15 +379,15 @@ class CodeSplitter(ABC):
    ├─ 获取切分器: get_code_splitter(file_ext)
    │   ├─ .py → PythonCodeSplitter
    │   ├─ 其他支持语言 → TreeSitterCodeSplitter (降级到 RegexCodeSplitter)
-   │   └─ 不支持 → RegexCodeSplitter
+   │   └─ 不支持的代码扩展名 → 不索引
    ├─ 调用 splitter.split(content, max_class_length)
-   ├─ 对每个切分块使用 RecursiveCharacterTextSplitter 二次切分
-   ├─ 其他文件: should_exclude_file() 判断
+   ├─ 每个代码块直接构建 Document，并按 chunk_size.code 截断
+   ├─ 其他文件: 必须是支持的文档扩展名且未命中 should_exclude_file()
    └─ 构建 Document 对象 (page_content + metadata)
 
-4. 批量向量化
+4. 分批向量化
    ├─ DashScopeEmbeddings.embed_documents()
-   ├─ 存入 Chroma DB
+   ├─ 每批 1024 条写入 Chroma DB
    └─ 持久化到磁盘
 
 5. 构建 BM25 索引
@@ -406,7 +406,7 @@ class CodeSplitter(ABC):
 - Python: `__pycache__`, `.pytest_cache`, `.mypy_cache`, `venv`, `.venv`, `dist`, `build`
 - Node: `node_modules`, `.npm`, `.parcel-cache`
 - IDE: `.idea`, `.vscode`
-- 其他: `chroma_db`, `logs`, `tmp`
+- 其他: `chroma_db`, `logs`, `tmp`, `cache`
 
 **文件排除** (exclude_files):
 - 依赖锁定: `package-lock.json`, `yarn.lock`, `poetry.lock`, `go.sum`, `Cargo.lock`
@@ -648,6 +648,7 @@ build_context(): 格式化为带来源的字符串
 5. 格式要求：仅输出概括内容本身，纯文本
 6. 排除干扰：问题是总结性质且某资料和其他资料相差甚远，降低该资料比重
 7. 代码为准：文档和代码不一致时，以实际代码为准
+8. 文件提示：总结末尾追加与问题相关的材料文件路径，便于定位来源
 ```
 
 ### 5. 上下文构建 (Context Building)
@@ -918,7 +919,7 @@ repo:
   path: "/path/to/your/repo"
 
 embeddings:
-  model: "text-embedding-v4"
+  model: "text-embedding-v1"
 
 llm:
   model: "qwen-max"
@@ -1310,8 +1311,8 @@ option1 = Config.get("my_feature.option1", "default")
 
 - **调整 chunk_size**: 增大 chunk_size 减少 chunk 数量
 - **排除不必要文件**: 在 exclude_dirs/exclude_files 中添加更多规则
-- **批量索引**: 考虑分批索引超大仓库
-- **使用更快的嵌入模型**: `text-embedding-v3` 比 v4 更快
+- **批量索引**: `index_repo.py` 已按 1024 条文档分批写入 Chroma，超大仓库可继续配合排除规则减少输入量
+- **使用更快的嵌入模型**: 默认使用 `text-embedding-v1`
 
 ### 2. 检索速度优化
 
@@ -1480,6 +1481,8 @@ chatStream("这个项目如何使用？");
 | 特定函数/类名查找 | ❌ 可能被相似语义淹没 | ✅ 关键词精确命中 |
 | 索引新增/删除成本 | ⚠️ 需要重新向量化 | ✅ 快速更新 |
 
+如果语料很小或查询词过于常见，BM25 的 IDF 可能让命中文档得分为 0。当前实现会在这种情况下使用查询 token 与文档 token 的词频重合作为兜底分数，避免精确命中的内容被过滤掉。
+
 **BM25 算法原理**:
 
 BM25 是一种基于概率的信息检索算法，核心公式：
@@ -1522,6 +1525,9 @@ class BM25Index:
         
     def delete_by_sources(self, sources: list[str]) -> int
         """按 metadata.source 删除文档并重建索引"""
+
+    def _lexical_overlap_score(self, query_tokens: list[str], index: int) -> float
+        """BM25 得分为 0 时的词面命中兜底分数"""
         
     def save(self, path: str)
         """保存索引（仅保存原始文档和 metadata）"""
@@ -1707,13 +1713,18 @@ python scripts/delete_by_file_path.py /path/to/directory
 - ✅ 新增混合检索模式 (vector + BM25)
 - ✅ 新增 RRF (Reciprocal Rank Fusion) 结果融合算法
 - ✅ 新增标识符匹配增强功能
+- ✅ 新增 BM25 零 IDF 场景下的词面重合兜底得分
 - ✅ 新增 `utils/bm25_index.py` 模块
 - ✅ 新增 `utils/fusion.py` 模块
-- ✅ 更新 `index_repo.py` 同时构建 BM25 索引
+- ✅ 更新 `index_repo.py` 同时构建 BM25 索引，并按 1024 条文档分批写入 Chroma
+- ✅ 更新 `index_repo.py` 遍历时原地过滤目录，只索引支持的代码和文档文件
+- ✅ 更新代码索引策略：语义块直接生成 Document，按 `chunk_size.code` 截断，不再二次递归切分
 - ✅ 更新 `delete_by_file_path.py` 同时删除两类索引
 - ✅ 更新 `ServiceManager` 集成 BM25 服务
 - ✅ 更新 `RetrieveAndSummarize` 工具支持混合检索
 - ✅ 新增 `config.yml` 配置项: `bm25.*`, `retrieval.*`
+- ✅ 默认嵌入模型调整为 `text-embedding-v1`
+- ✅ 总结提示词要求追加相关文件路径
 - ✅ 新增完整测试覆盖
 
 ### v0.4.0
