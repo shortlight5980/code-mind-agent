@@ -46,6 +46,35 @@ class BM25IndexTests(unittest.TestCase):
 
         self.assertEqual("a.txt", results[0][1]["source"])
 
+    def test_delete_by_sources_removes_matching_chunks_and_rebuilds_index(self):
+        from utils.bm25_index import BM25Index
+
+        index = BM25Index()
+        index.fit(
+            [
+                "def delete_me(): return 'target'",
+                "def keep_me(): return 'survivor'",
+                "target docs",
+            ],
+            [
+                {"source": "src/delete_me.py", "type": "code"},
+                {"source": "src/keep_me.py", "type": "code"},
+                {"source": "docs/delete_me.md", "type": "doc"},
+            ],
+        )
+
+        removed = index.delete_by_sources(["src/delete_me.py", "docs/delete_me.md"])
+
+        self.assertEqual(2, removed)
+        deleted_sources = {
+            metadata["source"]
+            for _, metadata, _ in index.search("delete_me target", k=10)
+        }
+        self.assertFalse({"src/delete_me.py", "docs/delete_me.md"} & deleted_sources)
+        remaining = index.search("keep_me survivor", k=10, filter_type="code")
+        self.assertEqual(1, len(remaining))
+        self.assertEqual("src/keep_me.py", remaining[0][1]["source"])
+
 
 class FusionTests(unittest.TestCase):
     def test_rrf_fuse_deduplicates_by_source_and_content_hash(self):

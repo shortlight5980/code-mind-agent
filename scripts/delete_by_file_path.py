@@ -13,12 +13,70 @@ from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
 from utils.config import Config
 from utils.logger import get_logger
-
-Config.load()
-embedding_model = Config.get("embeddings.model", "text-embedding-v4")
-embeddings = DashScopeEmbeddings(model=embedding_model)
+from utils.bm25_index import BM25Index
 
 logger = get_logger("chroma_deleter")
+
+
+def _normalize_source_path(path: str) -> str:
+    """
+    标准化文件路径：转换为绝对路径并统一使用正斜杠 '/'。
+    
+    Args:
+        path: 原始文件路径
+        
+    Returns:
+        标准化后的文件路径
+    """
+    return os.path.abspath(path).replace('\\', '/')
+
+
+def _collect_target_sources(source_path: str) -> list[str]:
+    """
+    收集需要处理的目标源文件路径列表。
+    
+    如果输入是文件，返回包含该文件标准化路径的列表；
+    如果输入是目录，递归遍历目录下所有文件，返回所有文件的标准化路径列表。
+    
+    Args:
+        source_path: 文件路径或目录路径
+        
+    Returns:
+        标准化后的源文件路径列表
+    """
+    is_dir = os.path.isdir(source_path)
+    if not is_dir:
+        return [_normalize_source_path(source_path)]
+
+    target_sources = []
+    for root, _, files in os.walk(source_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            target_sources.append(_normalize_source_path(file_path))
+    return target_sources
+
+
+def _delete_bm25_documents_by_sources(target_sources: list[str]) -> int:
+    """
+    从 BM25 索引中删除与指定源文件关联的文档。
+    
+    Args:
+        target_sources: 需要删除的源文件路径列表
+        
+    Returns:
+        成功删除的文档数量
+    """
+    bm25_persist_path = Config.get("bm25.persist_path", "./bm25_index/index.pkl")
+    if not os.path.exists(bm25_persist_path):
+        logger.warning(f"BM25索引不存在，跳过删除: {bm25_persist_path}")
+        return 0
+
+    bm25_index = BM25Index.load(bm25_persist_path)
+    removed_count = bm25_index.delete_by_sources(target_sources)
+    if removed_count:
+        bm25_index.save(bm25_persist_path)
+    logger.info(f"BM25索引删除 {removed_count} 个关联文档")
+    return removed_count
 
 
 def delete_documents_by_source(source_path: str):
@@ -47,21 +105,13 @@ def delete_documents_by_source(source_path: str):
         embedding_function=embeddings
     )
 
-    # 判断是文件还是目录，构建查询条件
     is_dir = os.path.isdir(source_path)
+    target_sources = _collect_target_sources(source_path)
     
     if is_dir:
         # 遍历实际目录下的所有文件，构建需要删除的 source 路径列表
         logger.info(f"检测到目录，正在遍历: {source_path}")
-        
-        target_sources = []
-        for root, dirs, files in os.walk(source_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                # 使用绝对路径以匹配 ChromaDB 中存储的 source 格式（通常存储为绝对路径）
-                abs_file_path = os.path.abspath(file_path).replace('\\', '/')
-                target_sources.append(abs_file_path)
-        
+
         if not target_sources:
             logger.warning(f"目录下未找到任何文件: {source_path}")
             results = {'ids': []}
@@ -101,10 +151,11 @@ def delete_documents_by_source(source_path: str):
     else:
         # 精确匹配文件路径
         logger.info("检测到文件，将执行精确匹配删除")
-        results = vectordb.get(where={"source": source_path})
+        results = vectordb.get(where={"source": target_sources[0]})
 
     if not results['ids']:
         logger.warning(f"未找到路径 {source_path} 相关的文档")
+        _delete_bm25_documents_by_sources(target_sources)
         return
 
     doc_count = len(results['ids'])
@@ -122,6 +173,7 @@ def delete_documents_by_source(source_path: str):
     vectordb.delete(ids=results['ids'])
 
     logger.info(f"✓ 成功删除 {doc_count} 个文档")
+    _delete_bm25_documents_by_sources(target_sources)
 
 
 if __name__ == "__main__":

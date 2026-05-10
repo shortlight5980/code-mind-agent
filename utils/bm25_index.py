@@ -195,6 +195,32 @@ class BM25Index:
         self.bm25 = bm25_class(self._tokenized_documents)
         return self
 
+    def delete_by_sources(self, sources: list[str] | set[str]) -> int:
+        """
+        按 metadata.source 删除文档并重建索引。
+
+        Args:
+            sources: 要删除的 source 路径集合
+
+        Returns:
+            实际删除的 chunk 数量
+        """
+        normalized_sources = {source.replace("\\", "/") for source in sources}
+        kept_documents = []
+        kept_metadatas = []
+        removed_count = 0
+
+        for document, metadata in zip(self.documents, self.metadatas):
+            source = str(metadata.get("source", "")).replace("\\", "/")
+            if source in normalized_sources:
+                removed_count += 1
+                continue
+            kept_documents.append(document)
+            kept_metadatas.append(metadata)
+
+        self.fit(kept_documents, kept_metadatas)
+        return removed_count
+
     def search(
         self,
         query: str,
