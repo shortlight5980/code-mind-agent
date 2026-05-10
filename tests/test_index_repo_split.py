@@ -306,6 +306,111 @@ class CodeSplitterStrategyTests(unittest.TestCase):
 
         self.assertEqual(["def helper()"], captured_chunks)
 
+    def test_build_chunks_can_split_explicit_files_for_reuse(self):
+        class FakeDoc:
+            def __init__(self, page_content, metadata=None):
+                self.page_content = page_content
+                self.metadata = metadata or {}
+
+        class FakeConfig:
+            @staticmethod
+            def get(key, default=None):
+                values = {
+                    "chroma.chunk_size.doc": 5,
+                    "chroma.chunk_size.code": 12,
+                    "chroma.chunk_overlap": 0,
+                    "splitting.max_class_length": 3000,
+                }
+                return values.get(key, default)
+
+        class FakeTextLoader:
+            def __init__(self, path, encoding=None):
+                self.path = path
+
+            def load(self):
+                if self.path.endswith(".py"):
+                    return [FakeDoc("def helper():\n    return 'abcdefghijklmnopqrstuvwxyz'")]
+                return [FakeDoc("hello world")]
+
+        class FakeSplitter:
+            def __init__(self, chunk_size, chunk_overlap):
+                self.chunk_size = chunk_size
+
+            def create_documents(self, texts, metadatas):
+                return [
+                    FakeDoc(text[: self.chunk_size], metadata)
+                    for text, metadata in zip(texts, metadatas)
+                ]
+
+        with (
+            patch.object(index_repo, "Config", FakeConfig),
+            patch.object(index_repo, "TextLoader", FakeTextLoader),
+            patch.object(index_repo, "Document", FakeDoc),
+            patch.object(index_repo, "RecursiveCharacterTextSplitter", FakeSplitter),
+        ):
+            chunks = index_repo.build_chunks(["repo/service.py", "repo/guide.md"])
+
+        self.assertEqual(2, len(chunks))
+        self.assertEqual("def helper()", chunks[0].page_content)
+        self.assertEqual({"source": "repo/service.py", "type": "code"}, chunks[0].metadata)
+        self.assertEqual("hello", chunks[1].page_content)
+        self.assertEqual({"source": "repo/guide.md", "type": "doc"}, chunks[1].metadata)
+
+    def test_save_indexes_rebuilds_bm25_before_vector_write(self):
+        class FakeChunk:
+            def __init__(self, page_content, metadata):
+                self.page_content = page_content
+                self.metadata = metadata
+
+        class FakeConfig:
+            @staticmethod
+            def get_env(key):
+                return "api-key"
+
+        class FakeBM25Index:
+            saved_to = None
+            fitted_documents = None
+            fitted_metadatas = None
+
+            def fit(self, documents, metadatas):
+                FakeBM25Index.fitted_documents = documents
+                FakeBM25Index.fitted_metadatas = metadatas
+                return self
+
+            def save(self, path):
+                FakeBM25Index.saved_to = path
+
+        class FakeEmbeddings:
+            def __init__(self, model):
+                self.model = model
+
+        class FakeChroma:
+            batches = []
+
+            @classmethod
+            def from_documents(cls, documents, embeddings, persist_directory):
+                cls.batches.append((documents, embeddings.model, persist_directory))
+                return cls()
+
+            def add_documents(self, documents):
+                self.batches.append((documents, None, None))
+
+        chunk = FakeChunk("new content", {"source": "repo/service.py", "type": "code"})
+
+        with (
+            patch.object(index_repo, "Config", FakeConfig),
+            patch.object(index_repo, "DashScopeEmbeddings", FakeEmbeddings),
+            patch.object(index_repo, "Chroma", FakeChroma),
+            patch.dict(sys.modules, {"utils.bm25_index": types.SimpleNamespace(BM25Index=FakeBM25Index)}),
+        ):
+            saved = index_repo.save_indexes([chunk], "db", "model", "bm25.pkl")
+
+        self.assertEqual(1, saved)
+        self.assertEqual(["new content"], FakeBM25Index.fitted_documents)
+        self.assertEqual([{"source": "repo/service.py", "type": "code"}], FakeBM25Index.fitted_metadatas)
+        self.assertEqual("bm25.pkl", FakeBM25Index.saved_to)
+        self.assertEqual("db", FakeChroma.batches[0][2])
+
 
 if __name__ == "__main__":
     unittest.main()

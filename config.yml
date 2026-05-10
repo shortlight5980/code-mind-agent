@@ -27,7 +27,7 @@ repo:
   path: "/home/ljw/projects/FastGPT"
 
 embeddings:
-  model: "text-embedding-v1"
+  model: "text-embedding-v4"
 
 llm:
   model: "qwen-max"

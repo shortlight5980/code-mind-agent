@@ -961,35 +961,89 @@ def extract_python_classes_and_functions(content: str, max_class_length: int = 3
     return PythonCodeSplitter().extract_python_classes_and_functions(content, max_class_length)
 
 
-def index_repo(repo_path: str = None, persist_dir: str = None):
+def build_chunks(file_paths: list[str]) -> list[Document]:
     """
-    索引代码库到矢量数据库。
+    将指定文件列表切分为可写入索引的 Document 块。
 
     Args:
-        repo_path: 仓库路径，如果不指定则从 config.yml 的 repo.path 读取
-        persist_dir: 向量数据库保存目录，如果不指定则从配置读取
+        file_paths: 待切分的文件路径列表，路径会原样写入 metadata.source。
+
+    Returns:
+        切分后的 LangChain Document 列表。
     """
-    Config.load()
-
-    if repo_path is None:
-        repo_path = Config.get("repo.path", ".")
-
-    if persist_dir is None:
-        persist_dir = Config.get("chroma.persist_dir", "../chroma_db")
-
     chunk_size_doc = Config.get("chroma.chunk_size.doc", 800)
     chunk_size_code = Config.get("chroma.chunk_size.code", 2000)
     chunk_overlap = Config.get("chroma.chunk_overlap", 100)
     max_class_length = Config.get("splitting.max_class_length", 3000)
-    embedding_model = Config.get("embeddings.model", "text-embedding-v4")
-    bm25_persist_path = Config.get("bm25.persist_path", "./bm25_index/index.pkl")
 
     all_chunks = []
+    for file_path in file_paths:
+        filename = os.path.basename(file_path)
+        logger.info(f"Processing file: {file_path}")
 
+        if is_supported_code_file(filename):
+            try:
+                loader = TextLoader(file_path, encoding='utf-8')
+                docs = loader.load()
+
+                for doc in docs:
+                    if not doc.page_content.strip():
+                        continue
+                    ext = os.path.splitext(filename)[1]
+                    blocks = get_code_splitter(ext).split(doc.page_content, max_class_length)
+
+                    for block in blocks:
+                        if block.strip() and len(block.strip()) > 5:
+                            chunk = Document(
+                                page_content=block[:chunk_size_code],
+                                metadata={"source": file_path, "type": "code"}
+                            )
+                            all_chunks.append(chunk)
+
+            except Exception as e:
+                logger.warning(f"Skipping file {file_path}: {e}")
+            continue
+
+        if not is_supported_doc_file(filename) or should_exclude_file(filename):
+            logger.info(f"Skip file {file_path}")
+            continue
+
+        try:
+            loader = TextLoader(file_path, encoding='utf-8')
+            docs = loader.load()
+
+            for doc in docs:
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=chunk_size_doc,
+                    chunk_overlap=chunk_overlap
+                )
+                chunks = splitter.create_documents(
+                    [doc.page_content.strip()],
+                    metadatas=[{"source": file_path, "type": "doc"}]
+                )
+                all_chunks.extend(chunks)
+
+        except Exception as e:
+            logger.warning(f"Skipping file {file_path}: {e}")
+
+    return all_chunks
+
+
+def collect_repo_files(repo_path: str) -> list[str]:
+    """
+    扫描仓库目录，收集符合索引规则的文件路径。
+
+    Args:
+        repo_path: 仓库根目录。
+
+    Returns:
+        可交给 build_chunks 处理的文件路径列表。
+    """
+    file_paths = []
     logger.info(f"Starting repository scan: {repo_path}")
 
     for root, dirs, files in os.walk(repo_path):
-        # 目录级过滤优先做，避免进入依赖、构建产物和版本控制目录。
+        # 原地裁剪目录，避免继续扫描需要排除的目录。
         dirs[:] = [dirname for dirname in dirs if not should_exclude_dir(dirname)]
         path_parts = root.replace('\\', '/').split('/')
         if any(should_exclude_dir(part) for part in path_parts):
@@ -997,89 +1051,65 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
 
         for file in files:
             file_path = os.path.join(root, file).replace('\\', '/')
-            logger.info(f"Processing file: {file_path}")
-
-            if is_supported_code_file(file):
-                try:
-                    loader = TextLoader(file_path, encoding='utf-8')
-                    docs = loader.load()
-
-                    # 代码文件按类/函数等语义边界切块
-                    for doc in docs:
-                        if not doc.page_content.strip():
-                            continue
-                        ext = os.path.splitext(file)[1]
-                        blocks = get_code_splitter(ext).split(doc.page_content, max_class_length)
-
-                        for block in blocks:
-                            if block.strip() and len(block.strip()) > 5:
-                                chunk = Document(
-                                    page_content=block[:chunk_size_code],
-                                    metadata={"source": file_path, "type": "code"}
-                                )
-                                all_chunks.append(chunk)
-
-                except Exception as e:
-                    logger.warning(f"Skipping file {file_path}: {e}")
-
+            if is_supported_code_file(file) or (is_supported_doc_file(file) and not should_exclude_file(file)):
+                file_paths.append(file_path)
             else:
-                # 其余文件不做代码结构解析，只按普通文本处理。
-                if not is_supported_doc_file(file) or should_exclude_file(file):
-                    logger.info(f"Skip file {file_path}")
-                    continue
+                logger.info(f"Skip file {file_path}")
 
-                try:
-                    loader = TextLoader(file_path, encoding='utf-8')
-                    docs = loader.load()
+    return file_paths
 
-                    for doc in docs:
-                        # 文档类内容直接按文本块切分。
-                        splitter = RecursiveCharacterTextSplitter(
-                            chunk_size=chunk_size_doc,
-                            chunk_overlap=chunk_overlap
-                        )
-                        chunks = splitter.create_documents(
-                            [doc.page_content.strip()],
-                            metadatas=[{"source": file_path, "type": "doc"}]
-                        )
-                        all_chunks.extend(chunks)
 
-                except Exception as e:
-                    logger.warning(f"Skipping file {file_path}: {e}")
+def save_indexes(
+    chunks: list[Document],
+    persist_dir: str,
+    embedding_model: str,
+    bm25_persist_path: str,
+) -> int:
+    """
+    将 Document 分块写入 BM25 和 Chroma 索引。
 
-    if not all_chunks:
+    Args:
+        chunks: 待写入索引的 Document 分块。
+        persist_dir: Chroma 持久化目录。
+        embedding_model: DashScope embedding 模型名称。
+        bm25_persist_path: BM25 索引文件路径。
+
+    Returns:
+        实际参与写入流程的分块数量。
+    """
+    if not chunks:
         logger.error("No indexable files found")
-        return
+        return 0
 
     try:
         from utils.bm25_index import BM25Index
 
         bm25_index = BM25Index().fit(
-            [chunk.page_content for chunk in all_chunks],
-            [chunk.metadata for chunk in all_chunks],
+            [chunk.page_content for chunk in chunks],
+            [chunk.metadata for chunk in chunks],
         )
         bm25_index.save(bm25_persist_path)
         logger.info(f"BM25 index saved to {bm25_persist_path}")
     except Exception as e:
         logger.warning(f"Failed to build BM25 index: {e}")
 
-    logger.info(f"Total {len(all_chunks)} code chunks, starting vectorization...")
+    logger.info(f"Total {len(chunks)} code chunks, starting vectorization...")
 
     api_key = Config.get_env("DASHSCOPE_API_KEY")
     if not api_key:
         logger.error("DASHSCOPE_API_KEY not found in environment variables")
-        return
+        return len(chunks)
 
     embeddings = DashScopeEmbeddings(
         model=embedding_model,
     )
 
-    # 分批处理，每批 1024 条文档，避免内存溢出或 API 超时
+    # 按批次写入，避免一次提交过多文档触发向量接口或 Chroma 的批量限制。
     batch_size = 1024
     vectordb = None
-    for i in range(0, len(all_chunks), batch_size):
-        batch = all_chunks[i:i + batch_size]
-        logger.info(f"Processing batch {i // batch_size + 1}/{(len(all_chunks) + batch_size - 1) // batch_size}")
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i:i + batch_size]
+        logger.info(f"Processing batch {i // batch_size + 1}/{(len(chunks) + batch_size - 1) // batch_size}")
         if vectordb is None:
             vectordb = Chroma.from_documents(
                 batch,
@@ -1089,7 +1119,33 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
         else:
             vectordb.add_documents(batch)
 
-    logger.info(f"Indexing complete! {len(all_chunks)} chunks saved to {persist_dir}")
+    logger.info(f"Indexing complete! {len(chunks)} chunks saved to {persist_dir}")
+    return len(chunks)
+
+
+def index_repo(repo_path: str = None, persist_dir: str = None):
+    """
+    索引整个仓库到 BM25 和 Chroma。
+
+    该函数保留原有 CLI 入参和配置默认值，将流程拆成：
+    1. collect_repo_files 收集可索引文件；
+    2. build_chunks 负责切分；
+    3. save_indexes 负责写入 BM25 和 Chroma。
+    """
+    Config.load()
+
+    if repo_path is None:
+        repo_path = Config.get("repo.path", ".")
+
+    if persist_dir is None:
+        persist_dir = Config.get("chroma.persist_dir", "../chroma_db")
+
+    embedding_model = Config.get("embeddings.model", "text-embedding-v4")
+    bm25_persist_path = Config.get("bm25.persist_path", "./bm25_index/index.pkl")
+
+    file_paths = collect_repo_files(repo_path)
+    all_chunks = build_chunks(file_paths)
+    save_indexes(all_chunks, persist_dir, embedding_model, bm25_persist_path)
 
 
 if __name__ == "__main__":
