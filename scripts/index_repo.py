@@ -13,7 +13,7 @@ except ImportError:
     tslang = None
     Parser = None
 
-# 将父目录添加到utils导入路径中
+# 让脚本可直接导入仓库根目录下的 utils 模块。
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from langchain_community.document_loaders import TextLoader
@@ -61,7 +61,7 @@ FUNCTION_CHUNK_TYPES = {
     'cpp': ['function_definition'],
 }
 
-# Directories to exclude
+# 遍历仓库时直接跳过的目录名。
 exclude_dirs = {
     # 版本控制系统目录
     '.git', '.svn', '.hg', '.bzr', '_darcs', 'CVS',
@@ -102,7 +102,7 @@ exclude_dirs = {
     '.understand-anything'
 }
 
-# Files to exclude (exact names or patterns)
+# 按文件名精确排除的文件。
 exclude_files = {
     # 依赖锁定文件 (Dependency Lock Files)
     'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
@@ -124,7 +124,7 @@ exclude_files = {
     'CODE_OF_CONDUCT.md', 'SECURITY.md',
 }
 
-# File extensions/patterns to exclude
+# 按通配符模式排除的文件。
 exclude_file_patterns = {
     # IDE 和编辑器配置/临时文件
     '*.iml', '.idea/*', '.vscode/*', '*.swp', '*.swo', '*~', '#*#',
@@ -444,7 +444,7 @@ def _fallback_split_class_by_methods(class_content: str, class_indent: str):
 
 
 class CodeSplitter(ABC):
-    """Unified interface for code chunking strategies."""
+    """代码切块器统一接口。"""
 
     @abstractmethod
     def split(self, content: str, max_class_length: int = 3000) -> list[str]:
@@ -526,6 +526,8 @@ class TreeSitterCodeSplitter(CodeSplitter):
         function_types: set[str],
         max_class_length: int,
     ) -> list[str]:
+        # 先抽取类/impl/struct 这类大结构；过长时再下钻到方法级。
+        # 之后补回未被这些主结构覆盖的函数，以及零散的普通代码片段。
         class_nodes = []
         if class_types:
             self._collect_nodes(root, class_types, class_nodes)
@@ -578,6 +580,7 @@ class TreeSitterCodeSplitter(CodeSplitter):
         container_node,
         function_types: set[str],
     ) -> list[tuple[int, int, str]]:
+        # 这里只拆直属函数，避免把内部类中的方法误拆到外层结构里。
         if not function_types:
             return []
 
@@ -611,6 +614,9 @@ class TreeSitterCodeSplitter(CodeSplitter):
         primary_chunks: list[tuple[int, int, str]],
         covered_ranges: list[tuple[int, int]],
     ) -> list[str]:
+        # 按源码顺序重新拼接：
+        # 1. 保留主结构块
+        # 2. 补回主结构之间未覆盖的 import、常量、注释等零散片段
         sorted_chunks = sorted(primary_chunks, key=lambda item: (item[0], item[1]))
         sorted_covered_ranges = sorted(covered_ranges)
         merged = []
@@ -760,7 +766,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
     logger.info(f"Starting repository scan: {repo_path}")
 
     for root, _, files in os.walk(repo_path):
-        # Skip excluded directories
+        # 目录级过滤优先做，避免进入依赖、构建产物和版本控制目录。
         path_parts = root.replace('\\', '/').split('/')
         if any(part in exclude_dirs for part in path_parts):
             continue
@@ -774,7 +780,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
                     loader = TextLoader(file_path, encoding='utf-8')
                     docs = loader.load()
 
-                    # 根据代码边界进行智能分割
+                    # 代码文件先按类/函数等语义边界切块，再做固定长度切分。
                     for doc in docs:
                         if not doc.page_content.strip():
                             continue
@@ -798,7 +804,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
                     logger.warning(f"Skipping file {file_path}: {e}")
 
             else:
-                # 非支持的代码类型，按照文本处理
+                # 其余文件不做代码结构解析，只按普通文本处理。
                 if should_exclude_file(file):
                     logger.info(f"Skip file {file_path}")
                     continue
@@ -808,7 +814,7 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
                     docs = loader.load()
 
                     for doc in docs:
-                        # 是普通文档或不支持的语言类型，使用文档切割器
+                        # 文档类内容直接按文本块切分。
                         splitter = RecursiveCharacterTextSplitter(
                             chunk_size=chunk_size_doc,
                             chunk_overlap=chunk_overlap
@@ -847,28 +853,20 @@ def index_repo(repo_path: str = None, persist_dir: str = None):
 
 
 if __name__ == "__main__":
-    # 创建命令行参数解析器，用于处理用户输入的参数
+    # 命令行只覆盖仓库路径和向量库目录；未传时回退到配置文件。
     parser = argparse.ArgumentParser(description="Index Git repository to vector database")
-    
-    # 添加位置参数 'repo_path'，用于指定要索引的仓库路径
-    # nargs="?" 表示该参数是可选的，如果未提供，则默认为 None
-    # 在 index_repo 函数中，如果为 None，将从 config.yml 中读取默认值
+
     parser.add_argument(
         "repo_path", 
         nargs="?", 
         help="Repository path to index (optional, defaults to repo.path in config.yml)"
     )
-    
-    # 添加可选参数 '--persist-dir'，用于指定向量数据库的保存目录
-    # 如果未提供，将使用配置文件中的默认值
+
     parser.add_argument(
         "--persist-dir", 
         help="Vector database save directory"
     )
-    
-    # 解析命令行参数
+
     args = parser.parse_args()
 
-    # 调用索引函数，传入解析后的仓库路径和持久化目录
-    # 如果参数为 None，index_repo 内部会从配置文件中加载默认值
     index_repo(args.repo_path, args.persist_dir)
