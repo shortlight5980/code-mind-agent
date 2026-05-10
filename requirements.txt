@@ -12,6 +12,7 @@ langchain-chroma>=0.1.0
 langsmith>=0.1.0
 tree-sitter==0.20.1
 tree-sitter-languages>=1.10.2
+dashscope
 
 # Vector Database
 chromadb>=0.4.0
