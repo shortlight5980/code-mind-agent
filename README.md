@@ -14,7 +14,7 @@
 - **RRF 融合**: 使用 Reciprocal Rank Fusion 算法智能融合两路结果
 - **标识符增强**: 可选对查询中的代码标识符进行匹配增强
 - **三种模式**: 支持纯向量、纯 BM25、混合检索三种模式可配置
-- **支持代码和文档分开检索**: 使用阿里云 `text-embedding-v1` 模型
+- **支持代码和文档分开检索**: 使用阿里云 `text-embedding-v4` 模型
 - **BM25 词面兜底**: 当 BM25 的 IDF 得分为 0 但查询词确实命中内容时，使用词频重合分数保留结果
 
 ### ✂️ 智能代码切分
@@ -25,6 +25,7 @@
   - 使用字节范围合并结构块和零散片段，避免多字节字符导致切片错位
   - 自动降级到正则模式切分（Tree-sitter 不可用时）
 - **索引范围过滤**: 遍历时提前跳过依赖、缓存、构建产物等目录，只索引支持的代码和文档文件
+- **增量追加与去重**: 支持按文件/目录追加索引，并基于 `chunk_hash` 跳过已存在的 BM25/Chroma 分块
 - 保留完整语法结构，避免破坏代码语义
 
 ### 🔄 查询改写 (Query Rewriting)
@@ -77,6 +78,17 @@ python scripts/index_repo.py
 ```bash
 python scripts/index_repo.py /path/to/repo --persist-dir ./chroma_db
 ```
+
+### 增量追加文件或目录
+
+当只新增少量文件时，可以复用完整索引的切分和写入逻辑，将指定文件或目录追加到现有 Chroma 和 BM25 索引中：
+
+```bash
+python scripts/add_by_file_path.py /path/to/new_file.py
+python scripts/add_by_file_path.py /path/to/new_directory --persist-dir ./chroma_db
+```
+
+脚本会按当前索引规则过滤文件，生成 `chunk_hash`，并跳过现有索引中已经存在的分块。
 
 ### 启动服务
 
@@ -148,6 +160,7 @@ CodeMindAgent/
 │   └── context_builder.py   # 上下文构建器
 ├── scripts/                 # 脚本工具
 │   ├── index_repo.py        # 仓库索引脚本
+│   ├── add_by_file_path.py  # 增量追加索引脚本
 │   └── delete_by_file_path.py  # 删除索引脚本
 ├── services/                # 服务管理
 │   └── service_manager.py   # 单例服务管理器
@@ -194,7 +207,7 @@ repo:
   path: "/path/to/repo"               # 被索引仓库路径
 
 embeddings:
-  model: "text-embedding-v1"          # 嵌入模型
+  model: "text-embedding-v4"          # 嵌入模型
 
 llm:
   model: "qwen-max"                   # 主 LLM 模型
@@ -328,6 +341,8 @@ agent:
 - 遍历目录时会原地过滤 `.git`、依赖目录、缓存目录、构建产物等，避免进入无关目录
 - 代码文件按语义块生成 `Document`，单个代码块按 `chroma.chunk_size.code` 截断，不再对代码块做二次递归切分
 - 文档文件继续使用 `RecursiveCharacterTextSplitter`，遵循 `chroma.chunk_size.doc` 和 `chroma.chunk_overlap`
+- 每个分块会写入基于内容 SHA-256 计算的 `chunk_hash`，写入前先在本次分块、已有 BM25 metadata、已有 Chroma metadata 中去重
+- `scripts/add_by_file_path.py` 与全量索引复用同一套 `build_chunks` / `save_indexes` 流程，避免增量追加和全量重建的规则漂移
 - Chroma 写入按 1024 条文档分批处理，降低大仓库索引时的内存和 API 超时风险
 
 ## API 文档
@@ -445,6 +460,9 @@ A: 1. 在 `scripts/index_repo.py` 中:
 ### Q: 向量数据库占用空间太大？
 A: 可以使用 `scripts/delete_by_file_path.py` 删除不需要的文件索引（会同时删除 Chroma 和 BM25 索引），或者调整切分策略减少 chunk 数量。
 
+### Q: 新增了少量文件，必须重新索引整个仓库吗？
+A: 不需要。可以运行 `scripts/add_by_file_path.py /path/to/file_or_dir` 增量追加指定文件或目录。脚本会复用全量索引的文件过滤、代码切分、BM25/Chroma 写入逻辑，并通过 `chunk_hash` 跳过已存在分块。
+
 ### Q: 如何切换检索模式？
 A: 在 `config.yml` 中修改 `retrieval.mode` 配置：
 - `vector`: 纯向量检索
@@ -456,6 +474,7 @@ A: BM25 是传统的关键词检索算法，用于补充语义检索的不足。
 - 不需要手动构建：运行 `scripts/index_repo.py` 时会自动构建
 - 索引存储在 `bm25.persist_path` 指定的路径
 - 小语料或常见词导致 BM25 得分为 0 时，会使用查询词词频重合作为兜底分数
+- 增量追加时会先加载已有 BM25 文档和 metadata，合并新增分块后重建并保存 BM25 索引
 - 删除时会同步删除：`scripts/delete_by_file_path.py` 会同时删除两类索引
 
 ### Q: 什么是标识符增强？

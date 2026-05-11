@@ -36,7 +36,7 @@ CodeMind Agent 是一个基于 RAG (检索增强生成) 的代码仓库智能问
 |------|---------|------|
 | Web 框架 | FastAPI | 高性能异步 Web 框架 |
 | LLM | 阿里云 Qwen | qwen-max / qwen-turbo |
-| Embedding | 阿里云 DashScope | text-embedding-v1 |
+| Embedding | 阿里云 DashScope | text-embedding-v4 |
 | Vector DB | Chroma | 轻量级向量数据库 |
 | Orchestration | LangChain | LLM 应用开发框架 |
 | 配置管理 | YAML + python-dotenv | 支持环境变量和配置文件 |
@@ -385,16 +385,25 @@ class CodeSplitter(ABC):
    ├─ 其他文件: 必须是支持的文档扩展名且未命中 should_exclude_file()
    └─ 构建 Document 对象 (page_content + metadata)
 
-4. 分批向量化
+4. 分块去重
+   ├─ 为每个 Document 写入基于内容 SHA-256 的 chunk_hash
+   ├─ 先对本次构建产生的重复 chunk 去重
+   ├─ 加载已有 BM25 metadata，跳过已存在 hash
+   └─ 如可连接 Chroma，则读取已有 Chroma metadata，继续跳过已存在 hash
+
+5. 构建/更新 BM25 索引
+   ├─ 加载已有 BM25 文档和 metadata
+   ├─ 合并新增分块
+   ├─ BM25Index.fit() 重建索引
+   └─ 保存到 bm25.persist_path
+
+6. 分批向量化
    ├─ DashScopeEmbeddings.embed_documents()
    ├─ 每批 1024 条写入 Chroma DB
    └─ 持久化到磁盘
-
-5. 构建 BM25 索引
-   ├─ 收集所有切分块 (content + metadata)
-   ├─ BM25Index.fit() 构建索引
-   └─ 保存到 bm25.persist_path
 ```
+
+`index_repo.py` 将流程拆成 `collect_repo_files()`、`build_chunks()` 和 `save_indexes()`。增量追加脚本会复用后两者，保证全量索引和增量索引使用一致的文件切分、metadata 和写入规则。
 
 **支持的代码文件扩展名**:
 `.py`, `.java`, `.js`, `.jsx`, `.ts`, `.tsx`, `.go`, `.rs`, `.c`, `.cpp`
@@ -919,7 +928,7 @@ repo:
   path: "/path/to/your/repo"
 
 embeddings:
-  model: "text-embedding-v1"
+  model: "text-embedding-v4"
 
 llm:
   model: "qwen-max"
@@ -1312,7 +1321,7 @@ option1 = Config.get("my_feature.option1", "default")
 - **调整 chunk_size**: 增大 chunk_size 减少 chunk 数量
 - **排除不必要文件**: 在 exclude_dirs/exclude_files 中添加更多规则
 - **批量索引**: `index_repo.py` 已按 1024 条文档分批写入 Chroma，超大仓库可继续配合排除规则减少输入量
-- **使用更快的嵌入模型**: 默认使用 `text-embedding-v1`
+- **使用当前默认嵌入模型**: 默认使用 `text-embedding-v4`
 
 ### 2. 检索速度优化
 
@@ -1385,6 +1394,7 @@ pip install -r requirements.txt
 | `prompts/prompt_manager.py` | 提示词管理器 |
 | `rag/context_builder.py` | RAG 上下文构建 |
 | `scripts/index_repo.py` | 仓库索引脚本 |
+| `scripts/add_by_file_path.py` | 增量追加文件/目录到索引 |
 | `scripts/delete_by_file_path.py` | 删除索引脚本 |
 | `services/service_manager.py` | 单例服务管理器 |
 | `utils/config.py` | 配置管理 |
@@ -1673,7 +1683,52 @@ class ServiceManager:
         """检索策略配置 (mode, rrf_k, identifier_boost)"""
 ```
 
-### 6. 索引删除 (Delete Index)
+### 6. 索引追加 (Add Index)
+
+**文件**: `scripts/add_by_file_path.py`
+
+**功能**: 将指定文件或目录下的可索引文件增量追加到 Chroma 向量索引和 BM25 关键词索引。
+
+**设计要点**:
+
+- 只负责收集用户指定路径下的可索引文件，文件类型和排除规则复用 `index_repo.py`。
+- 单个文件会先判断是否是支持的代码或文档文件；目录会递归遍历并原地跳过排除目录。
+- 文件路径会标准化为绝对路径并使用正斜杠，保持与 `metadata.source` 的格式一致。
+- 切分逻辑复用 `build_chunks()`，写入逻辑复用 `save_indexes()`，避免增量追加与全量重建的规则漂移。
+- 写入前会基于 `chunk_hash` 去重；已有 BM25/Chroma 中存在的分块不会重复写入。
+
+**追加流程**:
+
+```
+1. 读取 config.yml
+   ├─ chroma.persist_dir
+   ├─ bm25.persist_path
+   └─ embeddings.model
+
+2. 收集指定路径下的可索引文件
+   ├─ 文件: 判断扩展名和排除规则
+   └─ 目录: 递归扫描并跳过排除目录
+
+3. 复用全量索引流程
+   ├─ build_chunks(file_paths)
+   ├─ deduplicate_chunks_by_hash(chunks)
+   └─ save_indexes(chunks, persist_dir, embedding_model, bm25_persist_path)
+```
+
+**使用示例**:
+
+```bash
+# 追加单个文件
+python scripts/add_by_file_path.py /path/to/file.py
+
+# 追加整个目录
+python scripts/add_by_file_path.py /path/to/directory
+
+# 指定 Chroma 持久化目录
+python scripts/add_by_file_path.py /path/to/file.py --persist-dir ./chroma_db
+```
+
+### 7. 索引删除 (Delete Index)
 
 **文件**: `scripts/delete_by_file_path.py`
 
@@ -1708,7 +1763,15 @@ python scripts/delete_by_file_path.py /path/to/directory
 
 ---
 
-### v0.5.0 (当前)
+### v0.6.0 (当前)
+- ✅ 新增 `scripts/add_by_file_path.py`，支持按文件或目录增量追加到 RAG 索引
+- ✅ 重构 `scripts/index_repo.py`，将扫描、切分、写入拆为 `collect_repo_files()` / `build_chunks()` / `save_indexes()`
+- ✅ 新增基于 SHA-256 内容的 `chunk_hash` metadata
+- ✅ 新增索引写入前去重：本次分块去重、已有 BM25 metadata 去重、已有 Chroma metadata 去重
+- ✅ 增量追加时会加载并合并已有 BM25 文档后重建保存，避免覆盖旧索引
+- ✅ 默认嵌入模型调整为 `text-embedding-v4`
+
+### v0.5.0
 - ✅ 新增 BM25 关键词索引
 - ✅ 新增混合检索模式 (vector + BM25)
 - ✅ 新增 RRF (Reciprocal Rank Fusion) 结果融合算法
