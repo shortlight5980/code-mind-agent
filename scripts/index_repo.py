@@ -1193,10 +1193,6 @@ def save_indexes(
     )
     chunks = _filter_chunks_by_existing_hashes(chunks, existing_bm25_hashes)
 
-    if not chunks:
-        logger.info("No new chunks to save after database hash dedupe")
-        return 0
-
     api_key = Config.get_env("DASHSCOPE_API_KEY")
     embeddings = None
     if api_key:
@@ -1217,6 +1213,10 @@ def save_indexes(
         logger.info(f"BM25 index saved to {bm25_persist_path}")
     except Exception as e:
         logger.warning(f"Failed to build BM25 index: {e}")
+
+    if not chunks:
+        logger.info("No new chunks to save after database hash dedupe")
+        return 0
 
     if not api_key:
         return len(chunks)

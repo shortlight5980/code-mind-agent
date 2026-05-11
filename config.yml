@@ -24,10 +24,10 @@ retrieval:
 
 # 被索引的代码仓库路径（用于 Agent 工具查找文件）
 repo:
-  path: "C:/Users/14144/Desktop/CodeMind/CodeMindAgent"
+  path: "/home/ljw/projects/FastGPT"
 
 embeddings:
-  model: "text-embedding-v4"
+  model: "text-embedding-v1"
 
 llm:
   model: "qwen-max"
