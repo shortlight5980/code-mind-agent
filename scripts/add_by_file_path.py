@@ -14,6 +14,7 @@ sys.path.insert(0, project_root)
 
 from scripts.index_repo import (
     build_chunks,
+    deduplicate_chunks_by_hash,
     is_supported_code_file,
     is_supported_doc_file,
     save_indexes,
@@ -116,7 +117,7 @@ def add_documents_by_source(source_path: str, persist_dir: str | None = None) ->
         return 0
 
     logger.info(f"找到 {len(file_paths)} 个可索引文件")
-    chunks = build_chunks(file_paths)
+    chunks = deduplicate_chunks_by_hash(build_chunks(file_paths))
     if not chunks:
         logger.warning(f"未生成可索引分块: {source_path}")
         return 0

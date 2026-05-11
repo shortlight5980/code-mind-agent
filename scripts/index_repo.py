@@ -4,6 +4,7 @@ import ast
 import argparse
 import sys
 import fnmatch
+import hashlib
 from abc import ABC, abstractmethod
 
 try:
@@ -961,6 +962,104 @@ def extract_python_classes_and_functions(content: str, max_class_length: int = 3
     return PythonCodeSplitter().extract_python_classes_and_functions(content, max_class_length)
 
 
+def calculate_chunk_hash(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def ensure_chunk_hash(chunk: Document) -> Document:
+    chunk.metadata = dict(chunk.metadata or {})
+    chunk.metadata["chunk_hash"] = calculate_chunk_hash(chunk.page_content)
+    return chunk
+
+
+def deduplicate_chunks_by_hash(chunks: list[Document]) -> list[Document]:
+    deduplicated = []
+    seen_hashes = set()
+
+    for chunk in chunks:
+        ensure_chunk_hash(chunk)
+        chunk_hash = chunk.metadata["chunk_hash"]
+        if chunk_hash in seen_hashes:
+            continue
+        seen_hashes.add(chunk_hash)
+        deduplicated.append(chunk)
+
+    return deduplicated
+
+
+def _metadata_hash(metadata: dict | None, content: str | None = None) -> str | None:
+    metadata = metadata or {}
+    chunk_hash = metadata.get("chunk_hash")
+    if chunk_hash:
+        return str(chunk_hash)
+    if content is None:
+        return None
+    return calculate_chunk_hash(content)
+
+
+def _load_existing_bm25_entries(bm25_index_class, bm25_persist_path: str):
+    if not os.path.exists(bm25_persist_path):
+        return [], [], set()
+
+    try:
+        existing_index = bm25_index_class.load(bm25_persist_path)
+    except Exception as exc:
+        logger.warning(f"Failed to load existing BM25 index for dedupe: {exc}")
+        return [], [], set()
+
+    documents = list(getattr(existing_index, "documents", []) or [])
+    metadatas = [dict(metadata) for metadata in (getattr(existing_index, "metadatas", []) or [])]
+    hashes = set()
+
+    for index, document in enumerate(documents):
+        metadata = metadatas[index] if index < len(metadatas) else {}
+        chunk_hash = _metadata_hash(metadata, document)
+        if chunk_hash:
+            metadata["chunk_hash"] = chunk_hash
+            hashes.add(chunk_hash)
+        if index < len(metadatas):
+            metadatas[index] = metadata
+        else:
+            metadatas.append(metadata)
+
+    return documents, metadatas, hashes
+
+
+def _load_existing_chroma_hashes(persist_dir: str, embeddings) -> set[str]:
+    if not os.path.exists(persist_dir):
+        return set()
+
+    try:
+        vectordb = Chroma(
+            persist_directory=persist_dir,
+            embedding_function=embeddings,
+        )
+        payload = vectordb.get(include=["metadatas"])
+    except Exception as exc:
+        logger.warning(f"Failed to load existing Chroma metadata for dedupe: {exc}")
+        return set()
+
+    hashes = set()
+    for metadata in payload.get("metadatas", []) or []:
+        chunk_hash = _metadata_hash(metadata)
+        if chunk_hash:
+            hashes.add(chunk_hash)
+    return hashes
+
+
+def _filter_chunks_by_existing_hashes(chunks: list[Document], existing_hashes: set[str]) -> list[Document]:
+    if not existing_hashes:
+        return chunks
+
+    filtered = []
+    for chunk in chunks:
+        ensure_chunk_hash(chunk)
+        if chunk.metadata["chunk_hash"] in existing_hashes:
+            continue
+        filtered.append(chunk)
+    return filtered
+
+
 def build_chunks(file_paths: list[str]) -> list[Document]:
     """
     将指定文件列表切分为可写入索引的 Document 块。
@@ -998,7 +1097,7 @@ def build_chunks(file_paths: list[str]) -> list[Document]:
                                 page_content=block[:chunk_size_code],
                                 metadata={"source": file_path, "type": "code"}
                             )
-                            all_chunks.append(chunk)
+                            all_chunks.append(ensure_chunk_hash(chunk))
 
             except Exception as e:
                 logger.warning(f"Skipping file {file_path}: {e}")
@@ -1021,7 +1120,7 @@ def build_chunks(file_paths: list[str]) -> list[Document]:
                     [doc.page_content.strip()],
                     metadatas=[{"source": file_path, "type": "doc"}]
                 )
-                all_chunks.extend(chunks)
+                all_chunks.extend(ensure_chunk_hash(chunk) for chunk in chunks)
 
         except Exception as e:
             logger.warning(f"Skipping file {file_path}: {e}")
@@ -1081,28 +1180,48 @@ def save_indexes(
         logger.error("No indexable files found")
         return 0
 
-    try:
-        from utils.bm25_index import BM25Index
+    chunks = deduplicate_chunks_by_hash(chunks)
+    if not chunks:
+        logger.error("No unique indexable chunks found")
+        return 0
 
+    from utils.bm25_index import BM25Index
+
+    existing_bm25_documents, existing_bm25_metadatas, existing_bm25_hashes = _load_existing_bm25_entries(
+        BM25Index,
+        bm25_persist_path,
+    )
+    chunks = _filter_chunks_by_existing_hashes(chunks, existing_bm25_hashes)
+
+    if not chunks:
+        logger.info("No new chunks to save after database hash dedupe")
+        return 0
+
+    api_key = Config.get_env("DASHSCOPE_API_KEY")
+    embeddings = None
+    if api_key:
+        embeddings = DashScopeEmbeddings(
+            model=embedding_model,
+        )
+        existing_chroma_hashes = _load_existing_chroma_hashes(persist_dir, embeddings)
+        chunks = _filter_chunks_by_existing_hashes(chunks, existing_chroma_hashes)
+    else:
+        logger.error("DASHSCOPE_API_KEY not found in environment variables")
+
+    try:
         bm25_index = BM25Index().fit(
-            [chunk.page_content for chunk in chunks],
-            [chunk.metadata for chunk in chunks],
+            existing_bm25_documents + [chunk.page_content for chunk in chunks],
+            existing_bm25_metadatas + [chunk.metadata for chunk in chunks],
         )
         bm25_index.save(bm25_persist_path)
         logger.info(f"BM25 index saved to {bm25_persist_path}")
     except Exception as e:
         logger.warning(f"Failed to build BM25 index: {e}")
 
-    logger.info(f"Total {len(chunks)} code chunks, starting vectorization...")
-
-    api_key = Config.get_env("DASHSCOPE_API_KEY")
     if not api_key:
-        logger.error("DASHSCOPE_API_KEY not found in environment variables")
         return len(chunks)
 
-    embeddings = DashScopeEmbeddings(
-        model=embedding_model,
-    )
+    logger.info(f"Total {len(chunks)} code chunks, starting vectorization...")
 
     # 按批次写入，避免一次提交过多文档触发向量接口或 Chroma 的批量限制。
     batch_size = 1024

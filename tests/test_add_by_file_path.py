@@ -125,6 +125,10 @@ class AddByFilePathTests(unittest.TestCase):
                 captured["file_paths"] = file_paths
                 return [fake_chunk]
 
+            def fake_deduplicate_chunks_by_hash(chunks):
+                captured["deduplicated_chunks"] = chunks
+                return chunks
+
             def fake_save_indexes(chunks, persist_dir, embedding_model, bm25_persist_path):
                 captured["chunks"] = chunks
                 captured["persist_dir"] = persist_dir
@@ -135,12 +139,14 @@ class AddByFilePathTests(unittest.TestCase):
             with (
                 patch.object(add_by_file_path, "Config", FakeConfig),
                 patch.object(add_by_file_path, "build_chunks", side_effect=fake_build_chunks),
+                patch.object(add_by_file_path, "deduplicate_chunks_by_hash", side_effect=fake_deduplicate_chunks_by_hash),
                 patch.object(add_by_file_path, "save_indexes", side_effect=fake_save_indexes),
             ):
                 added_count = add_by_file_path.add_documents_by_source(str(py_file))
 
         self.assertEqual(1, added_count)
         self.assertEqual([py_file.resolve().as_posix()], captured["file_paths"])
+        self.assertEqual([fake_chunk], captured["deduplicated_chunks"])
         self.assertEqual([fake_chunk], captured["chunks"])
         self.assertEqual("db", captured["persist_dir"])
         self.assertEqual("model", captured["embedding_model"])

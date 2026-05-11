@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import sys
 import textwrap
 import types
@@ -351,10 +352,75 @@ class CodeSplitterStrategyTests(unittest.TestCase):
             chunks = index_repo.build_chunks(["repo/service.py", "repo/guide.md"])
 
         self.assertEqual(2, len(chunks))
+        expected_code_hash = hashlib.sha256("def helper()".encode("utf-8")).hexdigest()
+        expected_doc_hash = hashlib.sha256("hello".encode("utf-8")).hexdigest()
         self.assertEqual("def helper()", chunks[0].page_content)
-        self.assertEqual({"source": "repo/service.py", "type": "code"}, chunks[0].metadata)
+        self.assertEqual(
+            {"source": "repo/service.py", "type": "code", "chunk_hash": expected_code_hash},
+            chunks[0].metadata,
+        )
         self.assertEqual("hello", chunks[1].page_content)
-        self.assertEqual({"source": "repo/guide.md", "type": "doc"}, chunks[1].metadata)
+        self.assertEqual(
+            {"source": "repo/guide.md", "type": "doc", "chunk_hash": expected_doc_hash},
+            chunks[1].metadata,
+        )
+
+    def test_save_indexes_deduplicates_chunks_by_hash_before_writing(self):
+        class FakeChunk:
+            def __init__(self, page_content, metadata):
+                self.page_content = page_content
+                self.metadata = metadata
+
+        class FakeConfig:
+            @staticmethod
+            def get_env(key):
+                return "api-key"
+
+        class FakeBM25Index:
+            saved_to = None
+            fitted_documents = None
+            fitted_metadatas = None
+
+            def fit(self, documents, metadatas):
+                FakeBM25Index.fitted_documents = documents
+                FakeBM25Index.fitted_metadatas = metadatas
+                return self
+
+            def save(self, path):
+                FakeBM25Index.saved_to = path
+
+        class FakeEmbeddings:
+            def __init__(self, model):
+                self.model = model
+
+        class FakeChroma:
+            batches = []
+
+            @classmethod
+            def from_documents(cls, documents, embeddings, persist_directory):
+                cls.batches.append((documents, embeddings.model, persist_directory))
+                return cls()
+
+            def add_documents(self, documents):
+                self.batches.append((documents, None, None))
+
+        first = FakeChunk("same content", {"source": "repo/a.py", "type": "code"})
+        second = FakeChunk("same content", {"source": "repo/b.py", "type": "code"})
+
+        with (
+            patch.object(index_repo, "Config", FakeConfig),
+            patch.object(index_repo, "DashScopeEmbeddings", FakeEmbeddings),
+            patch.object(index_repo, "Chroma", FakeChroma),
+            patch.dict(sys.modules, {"utils.bm25_index": types.SimpleNamespace(BM25Index=FakeBM25Index)}),
+        ):
+            saved = index_repo.save_indexes([first, second], "db", "model", "bm25.pkl")
+
+        expected_hash = hashlib.sha256("same content".encode("utf-8")).hexdigest()
+        self.assertEqual(1, saved)
+        self.assertEqual(["same content"], FakeBM25Index.fitted_documents)
+        self.assertEqual([{"source": "repo/a.py", "type": "code", "chunk_hash": expected_hash}], FakeBM25Index.fitted_metadatas)
+        self.assertEqual(1, len(FakeChroma.batches[0][0]))
+        self.assertEqual(expected_hash, FakeChroma.batches[0][0][0].metadata["chunk_hash"])
 
     def test_save_indexes_rebuilds_bm25_before_vector_write(self):
         class FakeChunk:
@@ -406,10 +472,156 @@ class CodeSplitterStrategyTests(unittest.TestCase):
             saved = index_repo.save_indexes([chunk], "db", "model", "bm25.pkl")
 
         self.assertEqual(1, saved)
+        expected_hash = hashlib.sha256("new content".encode("utf-8")).hexdigest()
         self.assertEqual(["new content"], FakeBM25Index.fitted_documents)
-        self.assertEqual([{"source": "repo/service.py", "type": "code"}], FakeBM25Index.fitted_metadatas)
+        self.assertEqual(
+            [{"source": "repo/service.py", "type": "code", "chunk_hash": expected_hash}],
+            FakeBM25Index.fitted_metadatas,
+        )
         self.assertEqual("bm25.pkl", FakeBM25Index.saved_to)
         self.assertEqual("db", FakeChroma.batches[0][2])
+
+    def test_save_indexes_merges_bm25_and_skips_existing_hashes(self):
+        class FakeChunk:
+            def __init__(self, page_content, metadata):
+                self.page_content = page_content
+                self.metadata = metadata
+
+        class FakeConfig:
+            @staticmethod
+            def get_env(key):
+                return "api-key"
+
+        class FakeExistingBM25Index:
+            documents = ["existing content"]
+            metadatas = [{"source": "repo/existing.py", "type": "code"}]
+
+        class FakeBM25Index:
+            saved_to = None
+            fitted_documents = None
+            fitted_metadatas = None
+
+            @classmethod
+            def load(cls, path):
+                return FakeExistingBM25Index()
+
+            def fit(self, documents, metadatas):
+                FakeBM25Index.fitted_documents = documents
+                FakeBM25Index.fitted_metadatas = metadatas
+                return self
+
+            def save(self, path):
+                FakeBM25Index.saved_to = path
+
+        class FakeEmbeddings:
+            def __init__(self, model):
+                self.model = model
+
+        class FakeChroma:
+            batches = []
+
+            def __init__(self, persist_directory=None, **kwargs):
+                self.persist_directory = persist_directory
+
+            def get(self, include=None):
+                return {"metadatas": []}
+
+            @classmethod
+            def from_documents(cls, documents, embeddings, persist_directory):
+                cls.batches.append((documents, embeddings.model, persist_directory))
+                return cls()
+
+            def add_documents(self, documents):
+                self.batches.append((documents, None, None))
+
+        existing = FakeChunk("existing content", {"source": "repo/duplicate.py", "type": "code"})
+        new = FakeChunk("new content", {"source": "repo/new.py", "type": "code"})
+
+        with TemporaryDirectory() as temp_dir:
+            bm25_path = str(Path(temp_dir) / "bm25.pkl")
+            Path(bm25_path).write_bytes(b"exists")
+            with (
+                patch.object(index_repo, "Config", FakeConfig),
+                patch.object(index_repo, "DashScopeEmbeddings", FakeEmbeddings),
+                patch.object(index_repo, "Chroma", FakeChroma),
+                patch.dict(sys.modules, {"utils.bm25_index": types.SimpleNamespace(BM25Index=FakeBM25Index)}),
+            ):
+                saved = index_repo.save_indexes([existing, new], "db", "model", bm25_path)
+
+        existing_hash = hashlib.sha256("existing content".encode("utf-8")).hexdigest()
+        new_hash = hashlib.sha256("new content".encode("utf-8")).hexdigest()
+        self.assertEqual(1, saved)
+        self.assertEqual(["existing content", "new content"], FakeBM25Index.fitted_documents)
+        self.assertEqual(
+            [
+                {"source": "repo/existing.py", "type": "code", "chunk_hash": existing_hash},
+                {"source": "repo/new.py", "type": "code", "chunk_hash": new_hash},
+            ],
+            FakeBM25Index.fitted_metadatas,
+        )
+        self.assertEqual(1, len(FakeChroma.batches[0][0]))
+        self.assertEqual("new content", FakeChroma.batches[0][0][0].page_content)
+
+    def test_save_indexes_skips_chunks_already_in_chroma(self):
+        class FakeChunk:
+            def __init__(self, page_content, metadata):
+                self.page_content = page_content
+                self.metadata = metadata
+
+        class FakeConfig:
+            @staticmethod
+            def get_env(key):
+                return "api-key"
+
+        class FakeBM25Index:
+            saved_to = None
+            fitted_documents = None
+
+            def fit(self, documents, metadatas):
+                FakeBM25Index.fitted_documents = documents
+                return self
+
+            def save(self, path):
+                FakeBM25Index.saved_to = path
+
+        class FakeEmbeddings:
+            def __init__(self, model):
+                self.model = model
+
+        class FakeChroma:
+            batches = []
+
+            def __init__(self, persist_directory=None, **kwargs):
+                self.persist_directory = persist_directory
+
+            def get(self, include=None):
+                existing_hash = hashlib.sha256("existing vector".encode("utf-8")).hexdigest()
+                return {"metadatas": [{"chunk_hash": existing_hash}]}
+
+            @classmethod
+            def from_documents(cls, documents, embeddings, persist_directory):
+                cls.batches.append((documents, embeddings.model, persist_directory))
+                return cls()
+
+            def add_documents(self, documents):
+                self.batches.append((documents, None, None))
+
+        existing = FakeChunk("existing vector", {"source": "repo/duplicate.py", "type": "code"})
+        new = FakeChunk("new vector", {"source": "repo/new.py", "type": "code"})
+
+        with TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(index_repo, "Config", FakeConfig),
+                patch.object(index_repo, "DashScopeEmbeddings", FakeEmbeddings),
+                patch.object(index_repo, "Chroma", FakeChroma),
+                patch.dict(sys.modules, {"utils.bm25_index": types.SimpleNamespace(BM25Index=FakeBM25Index)}),
+            ):
+                saved = index_repo.save_indexes([existing, new], temp_dir, "model", "bm25.pkl")
+
+        self.assertEqual(1, saved)
+        self.assertEqual(["new vector"], FakeBM25Index.fitted_documents)
+        self.assertEqual(1, len(FakeChroma.batches[0][0]))
+        self.assertEqual("new vector", FakeChroma.batches[0][0][0].page_content)
 
 
 if __name__ == "__main__":
