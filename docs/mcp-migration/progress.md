@@ -114,6 +114,23 @@
   - docs/mcp-migration/findings.md（更新）
   - docs/mcp-migration/progress.md（更新）
 
+### Phase 5: 集成测试与文档补完（部分完成）
+- **Status:** in_progress
+- **Started:** 2026-05-12 14:26
+- Actions taken:
+  - 新增 `tests/test_mcp/test_proxy_e2e.py`，验证 `MCPReadFile`、`MCPSearchCode`、`MCPRunCommand` 经 `local transport` 的端到端代理链路
+  - 新增 `tests/test_mcp/test_app_health.py`，验证 `/health` 返回 MCP client 初始化和健康状态
+  - 更新 `app.py`，为 `/health` 增加 `mcp_client_initialized` 与 `mcp_client_healthy`
+  - 更新 `README.md`，补充混合 MCP 架构、`mcp` 配置段、单独启动 MCP server、健康检查返回字段
+  - 更新 `05-implementation-checklist.md`，同步阶段六到八的实际完成状态
+- Files created/modified:
+  - tests/test_mcp/test_proxy_e2e.py（创建）
+  - tests/test_mcp/test_app_health.py（创建）
+  - app.py（更新）
+  - README.md（更新）
+  - docs/mcp-migration/05-implementation-checklist.md（更新）
+  - docs/mcp-migration/progress.md（更新）
+
 ## Test Results
 | Test | Input | Expected | Actual | Status |
 |------|-------|----------|--------|--------|
@@ -121,6 +138,7 @@
 | `python -m unittest tests.test_tool_repo_paths` | 原工具回归测试 | 全部通过 | 6/6 通过 | passed |
 | `python -m unittest tests.test_mcp.test_server tests.test_mcp.tools.test_read_file tests.test_mcp.tools.test_search_code tests.test_mcp.tools.test_run_command tests.test_mcp.tools.test_index_manager tests.test_mcp.test_client tests.test_mcp.test_agent_mcp_tools tests.test_mcp.test_service_manager_mcp` | MCP 服务端 + 客户端 + 代理工具测试 | 全部通过 | 20/20 通过 | passed |
 | `conda run -n AIP312 python` 冒烟脚本 | `MCPClient(transport='stdio')` 调 `codemind_read_file` | 成功列出工具并返回文件内容 | 通过 | passed |
+| `python -m unittest tests.test_mcp.test_server tests.test_mcp.tools.test_read_file tests.test_mcp.tools.test_search_code tests.test_mcp.tools.test_run_command tests.test_mcp.tools.test_index_manager tests.test_mcp.test_client tests.test_mcp.test_agent_mcp_tools tests.test_mcp.test_service_manager_mcp tests.test_mcp.test_proxy_e2e tests.test_mcp.test_app_health` | 扩展 MCP 集成测试 | 全部通过 | 22/22 通过 | passed |
 
 ## Error Log
 | Timestamp | Error | Attempt | Resolution |
@@ -132,11 +150,11 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | MCP 客户端层与 Agent 代理工具层已实现，并完成真实 stdio 冒烟联调 |
-| Where am I going? | 下一步补阶段七/八：更完整端到端测试、性能基准、README/部署文档同步 |
+| Where am I? | MCP 客户端层、Agent 代理工具层、health 状态与基础端到端测试已完成 |
+| Where am I going? | 下一步补性能基准、Claude Desktop 手工联调，以及更完整的真实 Agent 级端到端验证 |
 | What's the goal? | 根据方案二完成混合式MCP迁移的代码实现与验证 |
 | What have I learned? | 见 findings.md |
-| What have I done? | 完成文档、MCP 服务骨架、MCP client、Agent 代理工具、测试与 stdio 联调验证 |
+| What have I done? | 完成文档、MCP 服务骨架、MCP client、Agent 代理工具、health 状态、测试与 stdio 联调验证 |
 
 ---
 *Update after completing each phase or encountering errors*

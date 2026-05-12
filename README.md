@@ -8,6 +8,7 @@
 - 自主决定何时使用检索工具
 - 支持流式和非流式输出
 - 集成多种代码分析工具
+- 支持混合 MCP 架构：检索本地执行，文件/搜索/命令工具可通过 MCP 服务调用
 
 ### 🔍 智能代码检索
 - **混合检索**: 语义向量检索 + BM25 关键词检索双路并行
@@ -67,6 +68,14 @@ repo:
   path: "/path/to/your/git/repo"
 ```
 
+3. **MCP 配置（可选）**：默认开启 Agent -> MCP server 工具代理
+```yaml
+mcp:
+  enabled: true
+  transport: "stdio"   # stdio / local
+  fallback_to_local: true
+```
+
 ### 索引代码库
 
 ```bash
@@ -96,6 +105,12 @@ python scripts/add_by_file_path.py /path/to/new_directory --persist-dir ./chroma
 python app.py
 # 或使用 uvicorn
 uvicorn app:app --reload
+```
+
+### 单独启动 MCP Server
+
+```bash
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python mcp/server.py
 ```
 
 ### API 使用
@@ -147,13 +162,20 @@ for chunk in response.iter_content(chunk_size=None):
 CodeMindAgent/
 ├── agent/                    # Agent 核心模块
 │   ├── agent.py             # CodeMind Agent 主类
+│   ├── mcp_client.py        # MCP 客户端封装
 │   ├── security.py          # 安全检查模块
 │   ├── streaming.py         # 流式输出处理
 │   └── tools/               # Agent 工具集
 │       ├── read_file.py     # 读取文件工具
 │       ├── search_code.py   # 代码搜索工具
 │       ├── run_command.py   # 命令执行工具
+│       ├── mcp_read_file.py # MCP 代理读取工具
+│       ├── mcp_search_code.py # MCP 代理搜索工具
+│       ├── mcp_run_command.py # MCP 代理命令工具
 │       └── retrieve_and_summarize.py  # 检索总结工具
+├── mcp/                      # MCP 服务层
+│   ├── server.py            # MCP Server 入口
+│   └── tools/               # MCP tools
 ├── prompts/                 # 提示词管理
 │   └── prompt_manager.py    # 提示词管理器
 ├── rag/                     # RAG 相关模块
@@ -236,21 +258,36 @@ agent:
     - "cat"
     - "grep"
     - "git"
+
+mcp:
+  enabled: true                       # 是否启用 Agent -> MCP server 代理
+  transport: "stdio"                  # stdio / local
+  server_command:                     # stdio 模式下的 MCP server 启动命令
+    - "conda"
+    - "run"
+    - "--no-capture-output"
+    - "-n"
+    - "AIP312"
+    - "python"
+    - "/abs/path/to/code-mind-agent/mcp/server.py"
+  call_timeout: 10
+  startup_timeout: 15
+  fallback_to_local: true             # MCP 失败时是否回退到本地工具
 ```
 
 ## Agent 可用工具
 
 ### 1. RetrieveAndSummarize
-根据用户问题从代码库中检索相关文档并进行总结提炼。这是获取代码库上下文的首选工具。
+根据用户问题从代码库中检索相关文档并进行总结提炼。这是获取代码库上下文的首选工具，始终在本地执行。
 
-### 2. ReadFile
-读取指定文件内容，支持按行号范围读取。
+### 2. ReadFile / MCPReadFile
+读取指定文件内容，支持按行号范围读取。默认经由 MCP server 调用，失败时可按配置降级到本地实现。
 
-### 3. SearchCode
-在代码库中搜索关键词或正则表达式。
+### 3. SearchCode / MCPSearchCode
+在代码库中搜索关键词或正则表达式。默认经由 MCP server 调用。
 
-### 4. RunCommand
-执行只读 shell 命令（如 ls, cat, grep, git 等）。
+### 4. RunCommand / MCPRunCommand
+执行只读 shell 命令（如 ls, cat, grep, git 等）。默认经由 MCP server 调用。
 
 ## 核心技术
 
@@ -382,7 +419,9 @@ agent:
 {
   "status": "ok",
   "vectordb_initialized": true,
-  "agent_initialized": true
+  "agent_initialized": true,
+  "mcp_client_initialized": true,
+  "mcp_client_healthy": true
 }
 ```
 

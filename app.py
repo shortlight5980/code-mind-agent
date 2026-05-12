@@ -14,7 +14,7 @@ from agent.streaming import agenerate_agent_stream
 logger = get_logger("app")
 
 # 全局服务管理器实例
-service_manager: ServiceManager
+service_manager: ServiceManager | None = None
 
 
 class Query(BaseModel):
@@ -99,10 +99,21 @@ async def chat_stream(query: Query, request: Request):
 @app.get("/health")
 async def health():
     """健康检查"""
+    if service_manager is None:
+        return {
+            "status": "not_initialized",
+            "vectordb_initialized": False,
+            "agent_initialized": False,
+            "mcp_client_initialized": False,
+            "mcp_client_healthy": False,
+        }
+    mcp_client = getattr(service_manager, "mcp_client", None)
     return {
         "status": "ok",
         "vectordb_initialized": service_manager.vectordb is not None,
-        "agent_initialized": service_manager.agent is not None
+        "agent_initialized": service_manager.agent is not None,
+        "mcp_client_initialized": bool(mcp_client and mcp_client.is_initialized),
+        "mcp_client_healthy": bool(mcp_client and mcp_client.health_check()),
     }
 
 
@@ -110,4 +121,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
