@@ -14,7 +14,7 @@ from langchain_community.chat_models import ChatTongyi
 from utils.logger import get_logger
 from utils.config import Config
 from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
-from .tools import ReadFile, SearchCode, RunCommand, RetrieveAndSummarize
+from .tools import get_agent_toolset
 
 from langchain_core.messages import (
     message_to_dict,
@@ -51,7 +51,7 @@ def get_tools() -> List[Tool]:
     Returns:
         工具对象列表
     """
-    return [ReadFile, SearchCode, RunCommand, RetrieveAndSummarize]
+    return list(get_agent_toolset())
 
 
 def load_system_prompts() -> str:
@@ -259,4 +259,3 @@ class CodeMindAgent:
             logger.error(f"Agent 流执行失败 >: {e}")
             error_msg = f"Agent 流式执行遇到问题：{str(e)}"
             yield {"type": "error", "data": {"content": error_msg}}
-

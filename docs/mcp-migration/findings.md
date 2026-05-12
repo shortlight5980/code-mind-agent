@@ -70,11 +70,18 @@
 | MCP工具命名使用codemind_前缀 | 避免与其他MCP服务工具冲突，如codemind_read_file |
 | 原应用保留工具副本作为降级路径 | 迁移期间可切换回原实现，降低风险 |
 | 使用Python MCP SDK | 官方推荐，生态完善 |
+| Agent 侧 MCP client 采用“同步 facade + 后台事件循环线程” | 兼容同步 ServiceManager 初始化和 LangChain 同步工具入口 |
+| MCP client 支持 `stdio` 与 `local` 两种 transport | `stdio` 用于真实运行，`local` 用于稳定单测与快速回归 |
+| MCP 代理工具在失败时按配置回退到原本地工具 | 保持迁移风险可控，不阻断现有 Agent 使用链路 |
+| MCP server 日志改走 stderr | 避免污染 stdio JSON-RPC 消息流 |
+| MCP server `call_tool` 返回 `CallToolResult(TextContent[])` | 适配真实 MCP SDK 的结果模型，避免客户端解析失败 |
 
 ## Issues Encountered
 | Issue | Resolution |
 |-------|------------|
-| 暂无 | - |
+| MCP server 日志写到 stdout，污染 JSON-RPC | logger 增加 `CODEMIND_LOG_STDERR` 开关，并在 `mcp/server.py` 启动前启用 |
+| MCP server `call_tool` 返回裸字符串，不符合 MCP SDK `CallToolResult` 结构 | 在 server 侧包装为 `TextContent` 列表 |
+| MCP client 关闭时跨 task 退出 anyio cancel scope | 改为单后台任务持有 stdio session，并通过请求队列串行执行操作 |
 
 ## Resources
 - 方案二原始设计：用户提供的详细方案

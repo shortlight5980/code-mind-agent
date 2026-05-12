@@ -15,7 +15,8 @@ from utils.bm25_index import BM25Index
 from utils.query_rewriting import create_query_rewriter
 from utils.summarizer import create_summarizer
 from agent.agent import CodeMindAgent
-from agent.tools import initialize_tool_service_manager
+from agent.mcp_client import MCPClient
+from agent.tools import initialize_mcp_tool_service_manager, initialize_tool_service_manager
 
 logger = get_logger("service_manager")
 
@@ -72,11 +73,15 @@ class ServiceManager:
         # 初始化查询改写LLM
         self._init_query_rewriting_llm()
 
+        # 初始化MCP客户端
+        self._init_mcp_client()
+
         # 初始化Agent
         self._init_agent()
 
         # 初始化工具的服务管理器引用
         initialize_tool_service_manager(self)
+        initialize_mcp_tool_service_manager(self)
 
         self._initialized = True
         logger.info("所有服务初始化完成")
@@ -176,6 +181,19 @@ class ServiceManager:
             logger.error(f"Agent初始化失败: {e}")
             raise
 
+    def _init_mcp_client(self) -> None:
+        """初始化 MCP 客户端。"""
+        if not Config.get("mcp.enabled", True):
+            self._services["mcp_client"] = None
+            logger.info("MCP client disabled by config")
+            return
+
+        logger.info("初始化 MCP client...")
+        client = MCPClient()
+        client.initialize()
+        self._services["mcp_client"] = client
+        logger.info("MCP client 初始化完成")
+
     def get(self, service_name: str, default: Any = None) -> Any:
         """
         获取服务
@@ -200,6 +218,12 @@ class ServiceManager:
     def cleanup(self) -> None:
         """清理所有服务"""
         logger.info("清理服务...")
+        mcp_client = self._services.get("mcp_client")
+        if mcp_client is not None:
+            try:
+                mcp_client.close()
+            except Exception as e:
+                logger.warning(f"MCP client 关闭失败: {e}")
         self._services.clear()
         self._initialized = False
         logger.info("服务清理完成")
@@ -233,6 +257,11 @@ class ServiceManager:
     def agent(self) -> Optional[CodeMindAgent]:
         """Agent服务"""
         return self._services.get("agent")
+
+    @property
+    def mcp_client(self) -> Optional[MCPClient]:
+        """MCP客户端服务"""
+        return self._services.get("mcp_client")
 
 
     @property

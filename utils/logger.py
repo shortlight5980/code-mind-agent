@@ -4,7 +4,7 @@ import sys
 from datetime import datetime
 from typing import Optional
 
-_logger_instance: Optional[logging.Logger] = None
+_logger_instances: dict[str, logging.Logger] = {}
 
 
 def get_logger(name: str = "codemind") -> logging.Logger:
@@ -17,10 +17,8 @@ def get_logger(name: str = "codemind") -> logging.Logger:
     Returns:
         Configured logger instance
     """
-    global _logger_instance
-
-    if _logger_instance is not None:
-        return _logger_instance
+    if name in _logger_instances:
+        return _logger_instances[name]
 
     # Create new logger
     logger = logging.getLogger(name)
@@ -28,7 +26,7 @@ def get_logger(name: str = "codemind") -> logging.Logger:
 
     # Avoid duplicate handlers
     if logger.handlers:
-        _logger_instance = logger
+        _logger_instances[name] = logger
         return logger
 
     # Formatter
@@ -38,7 +36,8 @@ def get_logger(name: str = "codemind") -> logging.Logger:
     )
 
     # Console handler (INFO level)
-    console_handler = logging.StreamHandler(sys.stdout)
+    stream = sys.stderr if os.getenv("CODEMIND_LOG_STDERR") == "1" else sys.stdout
+    console_handler = logging.StreamHandler(stream)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
@@ -61,5 +60,5 @@ def get_logger(name: str = "codemind") -> logging.Logger:
 
     logger.propagate = False
 
-    _logger_instance = logger
+    _logger_instances[name] = logger
     return logger

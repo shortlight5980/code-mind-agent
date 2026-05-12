@@ -29,7 +29,7 @@ class BaseMCPTool(ABC):
         pass
 
     def get_definition(self):
-        _, _, sdk_tool_type = load_sdk_modules()
+        _, _, sdk_tool_type, _ = load_sdk_modules()
         if sdk_tool_type is not None:
             return sdk_tool_type(
                 name=self.name,

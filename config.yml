@@ -66,3 +66,18 @@ agent:
     - "wc"
   command_timeout: 5
   max_search_results: 50
+
+mcp:
+  enabled: true
+  transport: "stdio"  # stdio / local
+  server_command:
+    - "conda"
+    - "run"
+    - "--no-capture-output"
+    - "-n"
+    - "AIP312"
+    - "python"
+    - "/home/ljw/桌面/CodeMind/code-mind-agent/mcp/server.py"
+  call_timeout: 10
+  startup_timeout: 15
+  fallback_to_local: true

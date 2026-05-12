@@ -58,3 +58,13 @@ class Config:
         if not cls._loaded:
             cls.load()
         return os.getenv(key, default)
+
+    @classmethod
+    def get_list(cls, key: str, default: list[str] | None = None) -> list[str]:
+        """Get a configuration value normalized as a list of strings."""
+        value = cls.get(key, default or [])
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        if value is None:
+            return default or []
+        return [str(value)]

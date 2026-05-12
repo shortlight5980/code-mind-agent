@@ -58,23 +58,24 @@ def _import_external_mcp_module(module_name: str):
         sys.path = original_sys_path
 
 
-def load_sdk_modules() -> tuple[Any, Any, Any] | tuple[None, None, None]:
+def load_sdk_modules() -> tuple[Any, Any, Any, Any] | tuple[None, None, None, None]:
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     _ = project_root
     if _is_local_package_bound():
-        return None, None, None
+        return None, None, None, None
 
     try:
         server_module = _import_external_mcp_module("mcp.server")
         stdio_module = _import_external_mcp_module("mcp.server.stdio")
         types_module = _import_external_mcp_module("mcp.types")
     except Exception:
-        return None, None, None
+        return None, None, None, None
 
     return (
         getattr(server_module, "Server", None),
         getattr(stdio_module, "stdio_server", None),
         getattr(types_module, "Tool", None),
+        types_module,
     )
 
 

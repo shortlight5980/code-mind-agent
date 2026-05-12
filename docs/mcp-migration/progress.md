@@ -79,25 +79,64 @@
   - claude_desktop_config.json（创建）
   - requirements.txt（更新）
 
+### Phase 4: MCP 客户端与 Agent 代理工具实现
+- **Status:** completed
+- **Started:** 2026-05-12 14:00
+- **Completed:** 2026-05-12 14:25
+- Actions taken:
+  - 实现了 `agent/mcp_client.py`，支持 `stdio` 与 `local` 两种 transport
+  - 将 `mcp_client` 生命周期接入 `services/service_manager.py`
+  - 更新 `agent/tools/__init__.py` 与 `agent/agent.py`，根据配置切换到 MCP 代理工具
+  - 新增 `MCPReadFile`、`MCPSearchCode`、`MCPRunCommand` 三个代理工具，并实现按配置降级到本地工具
+  - 更新 `config.yml` 与 `utils/config.py`，加入 MCP 配置项
+  - 新增 `tests/test_mcp/test_client.py`、`tests/test_mcp/test_agent_mcp_tools.py`、`tests/test_mcp/test_service_manager_mcp.py`
+  - 完成真实 stdio 端到端冒烟验证：`MCPClient -> mcp/server.py -> codemind_read_file`
+  - 修复了 MCP server 的两个协议兼容问题：stdout 日志污染、`call_tool` 裸字符串返回
+- Files created/modified:
+  - agent/mcp_client.py（创建）
+  - agent/tools/mcp_common.py（创建）
+  - agent/tools/mcp_read_file.py（创建）
+  - agent/tools/mcp_search_code.py（创建）
+  - agent/tools/mcp_run_command.py（创建）
+  - agent/tools/__init__.py（更新）
+  - agent/agent.py（更新）
+  - services/service_manager.py（更新）
+  - utils/config.py（更新）
+  - utils/logger.py（更新）
+  - mcp/sdk.py（更新）
+  - mcp/server.py（更新）
+  - mcp/tools/base.py（更新）
+  - config.yml（更新）
+  - tests/test_mcp/test_client.py（创建）
+  - tests/test_mcp/test_agent_mcp_tools.py（创建）
+  - tests/test_mcp/test_service_manager_mcp.py（创建）
+  - docs/mcp-migration/task_plan.md（更新）
+  - docs/mcp-migration/findings.md（更新）
+  - docs/mcp-migration/progress.md（更新）
+
 ## Test Results
 | Test | Input | Expected | Actual | Status |
 |------|-------|----------|--------|--------|
 | `python -m unittest tests.test_mcp.test_server tests.test_mcp.tools.test_read_file tests.test_mcp.tools.test_search_code tests.test_mcp.tools.test_run_command tests.test_mcp.tools.test_index_manager` | MCP 新增测试 | 全部通过 | 13/13 通过 | passed |
 | `python -m unittest tests.test_tool_repo_paths` | 原工具回归测试 | 全部通过 | 6/6 通过 | passed |
+| `python -m unittest tests.test_mcp.test_server tests.test_mcp.tools.test_read_file tests.test_mcp.tools.test_search_code tests.test_mcp.tools.test_run_command tests.test_mcp.tools.test_index_manager tests.test_mcp.test_client tests.test_mcp.test_agent_mcp_tools tests.test_mcp.test_service_manager_mcp` | MCP 服务端 + 客户端 + 代理工具测试 | 全部通过 | 20/20 通过 | passed |
+| `conda run -n AIP312 python` 冒烟脚本 | `MCPClient(transport='stdio')` 调 `codemind_read_file` | 成功列出工具并返回文件内容 | 通过 | passed |
 
 ## Error Log
 | Timestamp | Error | Attempt | Resolution |
 |-----------|-------|---------|------------|
-| 暂无 | - | - | - |
+| 2026-05-12 14:14 | 真实 stdio 联调时 JSON-RPC 解析失败 | 1 | 发现 server 日志写入 stdout，改为 stderr |
+| 2026-05-12 14:14 | 真实 stdio 联调时 `CallToolResult` 校验报错 | 1 | 发现 server 返回裸字符串，改为 `TextContent[]` |
+| 2026-05-12 14:24 | MCP client 关闭时 anyio cancel scope 跨 task 报错 | 1 | 改为单后台任务持有 session，用请求队列串行处理 |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | MCP 阶段一到五的代码骨架与核心工具包装已完成 |
-| Where am I going? | 下一步补阶段六：端到端联调、性能基准、README/部署文档同步 |
+| Where am I? | MCP 客户端层与 Agent 代理工具层已实现，并完成真实 stdio 冒烟联调 |
+| Where am I going? | 下一步补阶段七/八：更完整端到端测试、性能基准、README/部署文档同步 |
 | What's the goal? | 根据方案二完成混合式MCP迁移的代码实现与验证 |
 | What have I learned? | 见 findings.md |
-| What have I done? | 完成文档、实现 MCP 服务骨架与工具包装、补测试并完成回归验证 |
+| What have I done? | 完成文档、MCP 服务骨架、MCP client、Agent 代理工具、测试与 stdio 联调验证 |
 
 ---
 *Update after completing each phase or encountering errors*

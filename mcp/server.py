@@ -10,6 +10,8 @@ import importlib.util
 import os
 import sys
 
+os.environ.setdefault("CODEMIND_LOG_STDERR", "1")
+
 if __package__ in (None, ""):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if project_root not in sys.path:
@@ -33,7 +35,7 @@ if __package__ in (None, ""):
     LocalServerShim = sdk_module.LocalServerShim
     load_sdk_modules = sdk_module.load_sdk_modules
     local_stdio_server = sdk_module.local_stdio_server
-    ServerType, stdio_server, _ = load_sdk_modules()
+    ServerType, stdio_server, _, types_module = load_sdk_modules()
 
     tools_module = importlib.import_module(f"{local_alias}.tools")
     index_module = importlib.import_module(f"{local_alias}.tools.index_manager")
@@ -61,9 +63,11 @@ from utils.logger import get_logger
 logger = get_logger("mcp.server")
 
 if __package__ not in (None, ""):
-    ServerType, stdio_server, _ = load_sdk_modules()
+    ServerType, stdio_server, _, types_module = load_sdk_modules()
 app = (ServerType or LocalServerShim)("codemind-mcp-server")
 _TOOLS = None
+TextContent = getattr(types_module, "TextContent", None) if types_module else None
+CallToolResult = getattr(types_module, "CallToolResult", None) if types_module else None
 
 
 def get_tools():
@@ -98,7 +102,10 @@ async def list_tools():
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict):
-    return await call_registered_tool(name, arguments)
+    result = await call_registered_tool(name, arguments)
+    if TextContent and CallToolResult:
+        return CallToolResult(content=[TextContent(type="text", text=result)])
+    return result
 
 
 async def main():
