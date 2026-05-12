@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 from utils.logger import get_logger
 from agent.security import is_command_allowed
 from agent.tool_paths import get_repo_path, resolve_repo_relative_path
+from agent.tools.output_truncation import truncate_tool_output
 
 logger = get_logger("agent.tools.run_command")
 
@@ -298,7 +299,7 @@ def RunCommand(command: str) -> str:
                 # 使用 Python 实现
                 logger.info(f"Using Python implementation for: {command}")
                 result = _execute_python_command(cmd_data[0], cmd_data[1])
-                return "标准输出:\n" + "-" * 40 + "\n" + result
+                return truncate_tool_output("标准输出:\n" + "-" * 40 + "\n" + result, "RunCommand")
 
             # 使用原生命令，但需要设置 shell=True 才能正确执行 dir 等内置命令
             args = cmd_data
@@ -335,25 +336,18 @@ def RunCommand(command: str) -> str:
             )
 
         output = []
-        MAX_OUTPUT_CHARS = 10000  # 最大输出字符数
 
         if result.stdout:
-            stdout_content = result.stdout
-            if len(stdout_content) > MAX_OUTPUT_CHARS:
-                stdout_content = stdout_content[:MAX_OUTPUT_CHARS] + "\n\n[警告] 输出已截断，超过 %d 字符" % MAX_OUTPUT_CHARS
-            output.append("标准输出:\n" + "-" * 40 + "\n" + stdout_content)
+            output.append("标准输出:\n" + "-" * 40 + "\n" + result.stdout)
 
         if result.stderr:
-            stderr_content = result.stderr
-            if len(stderr_content) > MAX_OUTPUT_CHARS:
-                stderr_content = stderr_content[:MAX_OUTPUT_CHARS] + "\n\n[警告] 输出已截断，超过 %d 字符" % MAX_OUTPUT_CHARS
-            output.append("标准错误:\n" + "-" * 40 + "\n" + stderr_content)
+            output.append("标准错误:\n" + "-" * 40 + "\n" + result.stderr)
 
         output.append(f"\n返回码: {result.returncode}")
 
         logger.info(f"Command executed successfully: {command}")
         logger.debug("\n".join(output))
-        return "\n".join(output)
+        return truncate_tool_output("\n".join(output), "RunCommand")
 
     except subprocess.TimeoutExpired:
         logger.warning(f"Command timeout: {command}")
@@ -367,4 +361,3 @@ def RunCommand(command: str) -> str:
     except Exception as e:
         logger.error(f"Error executing command: {e}")
         return f"[错误] 命令执行失败: {str(e)}"
-

@@ -10,6 +10,7 @@ from langchain_core.tools import tool
 from utils.logger import get_logger
 from agent.security import validate_file_access, is_path_allowed, normalize_path
 from agent.tool_paths import get_allowed_dirs, get_repo_path, get_repo_paths_for_read
+from agent.tools.output_truncation import truncate_tool_output
 
 logger = get_logger("agent.tools.read_file")
 
@@ -185,7 +186,7 @@ def _read_file_with_lines(file_path: str, start_line: Optional[int] = None, end_
 
         logger.info(f"Successfully read file: {file_path}")
         logger.debug(file_info + separator + content)
-        return file_info + separator + content
+        return truncate_tool_output(file_info + separator + content, "ReadFile")
 
     except UnicodeDecodeError:
         # 尝试用其他编码读取
@@ -193,7 +194,10 @@ def _read_file_with_lines(file_path: str, start_line: Optional[int] = None, end_
             with open(file_path, 'r', encoding='gbk') as f:
                 content = f.read()
             logger.info(f"Successfully read file with gbk encoding: {file_path}")
-            return f"文件: {file_path} (GBK 编码)\n" + "-" * 80 + "\n" + content
+            return truncate_tool_output(
+                f"文件: {file_path} (GBK 编码)\n" + "-" * 80 + "\n" + content,
+                "ReadFile",
+            )
         except Exception as e2:
             logger.error(f"Failed to read file with fallback encoding: {e2}")
             return f"[错误] 无法读取文件 {file_path}: 编码不支持"
@@ -262,9 +266,8 @@ def ReadFile(file_path: str, start_line: Optional[int] = None, end_line: Optiona
             result = "存在多个同名文件，请传入相对于仓库根目录的完整路径！\n\n找到的文件:\n"
             for i, match in enumerate(matches, 1):
                 result += f"{i}. {match}\n"
-            return result
+            return truncate_tool_output(result, "ReadFile")
 
     except Exception as e:
         logger.error(f"Error reading file {file_path}: {e}")
         return f"[错误] 读取文件失败: {str(e)}"
-

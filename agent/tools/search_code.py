@@ -11,6 +11,7 @@ from langchain_core.tools import tool
 from utils.logger import get_logger
 from agent.security import is_path_allowed
 from agent.tool_paths import get_allowed_dirs, get_repo_path, resolve_repo_relative_path
+from agent.tools.output_truncation import truncate_tool_output
 
 logger = get_logger("agent.tools.search_code")
 
@@ -144,7 +145,7 @@ def SearchCode(query: str, is_regex: bool = False, search_dir: str = ".") -> str
         header = f"搜索结果 (共 {match_count} 个匹配):\n" + "=" * 80 + "\n"
         logger.info("[ToolsCall] " + header)
         logger.debug("\n".join(results))
-        return header + "\n".join(results)
+        return truncate_tool_output(header + "\n".join(results), "SearchCode")
 
     except Exception as e:
         logger.error(f"Error in SearchCode: {e}")

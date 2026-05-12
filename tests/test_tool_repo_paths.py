@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from agent.tools.read_file import ReadFile
+from agent.tools.output_truncation import MAX_TOOL_OUTPUT_CHARS
 from agent.tools.run_command import RunCommand
 from agent.tools.search_code import SearchCode
 
@@ -74,6 +75,72 @@ class ToolRepoPathTests(unittest.TestCase):
 
         self.assertIn(str(repo_root), result)
         self.assertEqual(str(repo_root), mock_run.call_args.kwargs["cwd"])
+
+    def test_read_file_truncates_large_output(self):
+        with TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "external-repo"
+            repo_root.mkdir()
+            target = repo_root / "large.txt"
+            target.write_text(("x" * 200 + "\n") * 200, encoding="utf-8")
+
+            values = {
+                "repo.path": str(repo_root),
+                "agent.allowed_dirs": ["."],
+                "agent.blocked_files": [],
+            }
+
+            with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
+                result = ReadFile.invoke({"file_path": "large.txt"})
+
+        self.assertIn("[警告] ReadFile 输出过长，已截断。", result)
+        self.assertLess(len(result), MAX_TOOL_OUTPUT_CHARS + 300)
+
+    def test_search_code_truncates_large_output(self):
+        with TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "external-repo"
+            repo_root.mkdir()
+            large_line = "needle " + ("x" * 400)
+            for idx in range(60):
+                (repo_root / f"file_{idx}.py").write_text(large_line + "\n", encoding="utf-8")
+
+            values = {
+                "repo.path": str(repo_root),
+                "agent.allowed_dirs": ["."],
+                "agent.max_search_results": 100,
+            }
+
+            with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
+                result = SearchCode.invoke({"query": "needle"})
+
+        self.assertIn("[警告] SearchCode 输出过长，已截断。", result)
+        self.assertLess(len(result), MAX_TOOL_OUTPUT_CHARS + 300)
+
+    def test_run_command_truncates_large_output(self):
+        with TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "external-repo"
+            repo_root.mkdir()
+
+            values = {
+                "repo.path": str(repo_root),
+                "agent.allowed_commands": ["git"],
+                "agent.command_timeout": 5,
+            }
+
+            completed = subprocess.CompletedProcess(
+                args=["git", "status"],
+                returncode=0,
+                stdout="x" * (MAX_TOOL_OUTPUT_CHARS + 5000),
+                stderr="",
+            )
+
+            with (
+                patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)),
+                patch("agent.tools.run_command.subprocess.run", return_value=completed),
+            ):
+                result = RunCommand.invoke({"command": "git status"})
+
+        self.assertIn("[警告] RunCommand 输出过长，已截断。", result)
+        self.assertLess(len(result), MAX_TOOL_OUTPUT_CHARS + 300)
 
 
 if __name__ == "__main__":
