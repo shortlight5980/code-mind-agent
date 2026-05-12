@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from mcp.sdk import ToolDefinition, load_sdk_modules
+from ..sdk import ToolDefinition, load_sdk_modules
 
 
 class BaseMCPTool(ABC):
@@ -46,4 +46,3 @@ class BaseMCPTool(ABC):
     @abstractmethod
     async def call(self, arguments: dict[str, Any]) -> str:
         pass
-

@@ -8,7 +8,7 @@ from typing import Any
 
 from scripts.index_repo import index_repo
 
-from mcp.tools.base import BaseMCPTool
+from ..base import BaseMCPTool
 
 
 class IndexRepoTool(BaseMCPTool):
@@ -41,4 +41,3 @@ class IndexRepoTool(BaseMCPTool):
         persist_dir = arguments.get("persist_dir")
         index_repo(repo_path=repo_path, persist_dir=persist_dir)
         return "仓库索引完成"
-

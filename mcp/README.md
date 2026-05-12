@@ -67,10 +67,16 @@ mcp/
 
 当前通过 [sdk.py](/home/ljw/桌面/CodeMind/code-mind-agent/mcp/sdk.py) 处理：
 
-- 如果外部 MCP SDK 可正确加载，则使用真实 `Server`、`stdio_server`、`Tool`
+- 包导入模式下，如果外部 MCP SDK 可正确加载，则使用真实 `Server`、`stdio_server`、`Tool`
 - 如果当前环境无法拿到外部 SDK，则退回本地 shim，保证单元测试和本地分发逻辑仍可运行
+- 脚本模式 `python mcp/server.py` 下，`server.py` 会先加载外部 SDK，再把本地 `mcp/` 目录以别名包 `codemind_local_mcp` 引入，避免本地包和第三方 SDK 同名冲突
 
-这意味着当前实现已经支持本地测试和工具分发验证，但“真实 MCP stdio 联调”仍建议单独做一轮手工确认。
+这意味着当前实现已经支持：
+
+- `python mcp/server.py` 直接启动
+- 本地测试和工具分发验证
+
+但“真实 MCP stdio 联调”仍建议单独做一轮手工确认。
 
 ## 启动方式
 
@@ -84,11 +90,21 @@ mcp>=1.0.0
 
 ### 本地启动
 
+按仓库约定，推荐在 `AIP312` 环境中运行：
+
+```bash
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python mcp/server.py
+```
+
+如果你已经激活了 `AIP312`，也可以直接运行：
+
 ```bash
 python mcp/server.py
 ```
 
-如果外部 MCP SDK 未正确安装或仍被包名冲突影响，启动时会在进入 stdio 传输层时报错；这种情况先检查 `mcp` 第三方依赖是否在当前环境可用。
+当前版本已经修复了这条命令的启动问题。
+
+如果外部 MCP SDK 未正确安装，启动时会在进入 stdio 传输层前失败；这种情况先检查当前环境里的第三方 `mcp` 依赖是否可用。
 
 ## Claude Desktop 配置
 
@@ -140,11 +156,11 @@ PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 pyth
 - MCP 目录结构
 - 服务入口与工具注册
 - 6 个工具的包装
+- `python mcp/server.py` 直接启动支持
 - MCP 单元测试
 - 原工具降级路径保留
 
 未完成：
 
 - Claude Desktop 端到端手工联调
-- 真实 stdio MCP 启动链路完整验证
 - 性能基准与更完整的部署说明

@@ -8,7 +8,7 @@ from typing import Any
 
 from agent.tools.run_command import RunCommand
 
-from mcp.tools.base import BaseMCPTool
+from .base import BaseMCPTool
 
 
 class RunCommandTool(BaseMCPTool):
@@ -35,4 +35,3 @@ class RunCommandTool(BaseMCPTool):
 
     async def call(self, arguments: dict[str, Any]) -> str:
         return RunCommand.invoke(arguments)
-

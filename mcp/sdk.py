@@ -6,13 +6,10 @@ local ``mcp`` package name used by this repository.
 from __future__ import annotations
 
 import importlib
-import importlib.machinery
-import importlib.util
 import os
 import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from types import ModuleType
 from typing import Any
 
 
@@ -25,8 +22,12 @@ class ToolDefinition:
     inputSchema: dict[str, Any]
 
 
+def _project_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def _search_paths_without_project() -> list[str]:
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    project_root = _project_root()
     filtered: list[str] = []
     for path in sys.path:
         normalized = os.path.abspath(path or os.getcwd())
@@ -35,32 +36,38 @@ def _search_paths_without_project() -> list[str]:
     return filtered
 
 
-def _load_sdk_root_module() -> ModuleType | None:
-    search_paths = _search_paths_without_project()
-    spec = importlib.machinery.PathFinder.find_spec("mcp", search_paths)
-    if spec is None or spec.loader is None:
-        return None
+def _is_local_package_bound() -> bool:
+    current = sys.modules.get("mcp")
+    if current is None:
+        return False
 
-    module = importlib.util.module_from_spec(spec)
-    sys.modules.setdefault("_codemind_external_mcp", module)
-    spec.loader.exec_module(module)
-    return module
+    module_file = getattr(current, "__file__", None)
+    if not module_file:
+        return False
+
+    module_file = os.path.abspath(module_file)
+    return module_file.startswith(os.path.join(_project_root(), "mcp"))
+
+
+def _import_external_mcp_module(module_name: str):
+    original_sys_path = list(sys.path)
+    try:
+        sys.path = _search_paths_without_project()
+        return importlib.import_module(module_name)
+    finally:
+        sys.path = original_sys_path
 
 
 def load_sdk_modules() -> tuple[Any, Any, Any] | tuple[None, None, None]:
-    """
-    Load ``Server``, ``stdio_server`` and ``Tool`` from the external MCP SDK.
-
-    Returns ``(None, None, None)`` when the SDK is unavailable.
-    """
-    root = _load_sdk_root_module()
-    if root is None:
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _ = project_root
+    if _is_local_package_bound():
         return None, None, None
 
     try:
-        server_module = importlib.import_module("mcp.server")
-        stdio_module = importlib.import_module("mcp.server.stdio")
-        types_module = importlib.import_module("mcp.types")
+        server_module = _import_external_mcp_module("mcp.server")
+        stdio_module = _import_external_mcp_module("mcp.server.stdio")
+        types_module = _import_external_mcp_module("mcp.types")
     except Exception:
         return None, None, None
 
@@ -104,4 +111,3 @@ class LocalServerShim:
 async def local_stdio_server():
     raise RuntimeError("MCP SDK is not installed; stdio server cannot start.")
     yield None, None
-

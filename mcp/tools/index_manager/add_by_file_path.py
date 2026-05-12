@@ -8,7 +8,7 @@ from typing import Any
 
 from scripts.add_by_file_path import add_documents_by_source
 
-from mcp.tools.base import BaseMCPTool
+from ..base import BaseMCPTool
 
 
 class AddByFilePathTool(BaseMCPTool):
@@ -42,4 +42,3 @@ class AddByFilePathTool(BaseMCPTool):
         persist_dir = arguments.get("persist_dir")
         count = add_documents_by_source(source_path=source_path, persist_dir=persist_dir)
         return f"索引追加完成，新增分块数: {count}"
-

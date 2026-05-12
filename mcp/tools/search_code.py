@@ -8,7 +8,7 @@ from typing import Any
 
 from agent.tools.search_code import SearchCode
 
-from mcp.tools.base import BaseMCPTool
+from .base import BaseMCPTool
 
 
 class SearchCodeTool(BaseMCPTool):
@@ -45,4 +45,3 @@ class SearchCodeTool(BaseMCPTool):
 
     async def call(self, arguments: dict[str, Any]) -> str:
         return SearchCode.invoke(arguments)
-

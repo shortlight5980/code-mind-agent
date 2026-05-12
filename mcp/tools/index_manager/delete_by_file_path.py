@@ -8,7 +8,7 @@ from typing import Any
 
 from scripts.delete_by_file_path import delete_documents_by_source
 
-from mcp.tools.base import BaseMCPTool
+from ..base import BaseMCPTool
 
 
 class DeleteByFilePathTool(BaseMCPTool):
@@ -37,4 +37,3 @@ class DeleteByFilePathTool(BaseMCPTool):
         source_path = arguments["source_path"]
         delete_documents_by_source(source_path)
         return f"索引删除完成: {source_path}"
-

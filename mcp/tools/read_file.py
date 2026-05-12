@@ -8,7 +8,7 @@ from typing import Any
 
 from agent.tools.read_file import ReadFile
 
-from mcp.tools.base import BaseMCPTool
+from .base import BaseMCPTool
 
 
 class ReadFileTool(BaseMCPTool):
@@ -45,4 +45,3 @@ class ReadFileTool(BaseMCPTool):
 
     async def call(self, arguments: dict[str, Any]) -> str:
         return ReadFile.invoke(arguments)
-
