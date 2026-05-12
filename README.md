@@ -117,7 +117,7 @@ uvicorn app:app --reload
 ### 单独启动 MCP Server
 
 ```bash
-PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python mcp/server.py
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python codemind_mcp/server.py
 ```
 
 Claude Desktop 手工联调步骤见：
@@ -206,7 +206,7 @@ CodeMindAgent/
 │       ├── mcp_search_code.py # MCP 代理搜索工具
 │       ├── mcp_run_command.py # MCP 代理命令工具
 │       └── retrieve_and_summarize.py  # 检索总结工具
-├── mcp/                      # MCP 服务层
+├── codemind_mcp/            # MCP 服务层
 │   ├── server.py            # MCP Server 入口
 │   └── tools/               # MCP tools
 ├── prompts/                 # 提示词管理
@@ -302,7 +302,7 @@ mcp:
     - "-n"
     - "AIP312"
     - "python"
-    - "/abs/path/to/code-mind-agent/mcp/server.py"
+    - "/abs/path/to/code-mind-agent/codemind_mcp/server.py"
   server_env:                         # 可选：传给 MCP server 子进程的环境变量
     CODEMIND_CONFIG_PATH: "/abs/path/to/config.yml"
   call_timeout: 10

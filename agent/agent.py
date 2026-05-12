@@ -15,6 +15,7 @@ from utils.logger import get_logger
 from utils.config import Config
 from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
 from .tools import get_agent_toolset
+from .mcp_host import build_langchain_mcp_tools
 
 from langchain_core.messages import (
     message_to_dict,
@@ -44,14 +45,17 @@ def _process_history(history: list[dict]) -> list:
         return []
 
 
-def get_tools() -> List[Tool]:
+def get_tools(mcp_client: Any | None = None) -> List[Tool]:
     """
     获取所有可用的 Agent 工具列表。
 
     Returns:
         工具对象列表
     """
-    return list(get_agent_toolset())
+    tools = list(get_agent_toolset())
+    if mcp_client is not None:
+        tools.extend(build_langchain_mcp_tools(mcp_client))
+    return tools
 
 
 def load_system_prompts() -> str:
@@ -81,7 +85,8 @@ class CodeMindAgent:
     def __init__(
             self,
             model: Optional[str] = None,
-            temperature: Optional[float] = None
+            temperature: Optional[float] = None,
+            mcp_client: Any | None = None,
     ):
         """
         初始化 CodeMind Agent。
@@ -103,7 +108,7 @@ class CodeMindAgent:
         )
 
         # 获取工具列表
-        self.tools = get_tools()
+        self.tools = get_tools(mcp_client)
 
         # 加载系统提示词
         self.system_prompt = load_system_prompts()

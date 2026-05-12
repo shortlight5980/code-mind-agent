@@ -21,19 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent.mcp_client import MCPClient
-from agent.tools.mcp_common import initialize_mcp_tool_service_manager
-from agent.tools.mcp_read_file import MCPReadFile
-from agent.tools.mcp_run_command import MCPRunCommand
-from agent.tools.mcp_search_code import MCPSearchCode
-from agent.tools.read_file import ReadFile
-from agent.tools.run_command import RunCommand
-from agent.tools.search_code import SearchCode
-
-
-class _ServiceManagerStub:
-    def __init__(self, mcp_client):
-        self.mcp_client = mcp_client
+from agent.mcp_host import MCPHostClient, build_langchain_mcp_tools
+from codemind_mcp.tool_impl import read_file_impl, run_command_impl, search_code_impl
 
 
 def _measure(label: str, fn: Callable[[], str], iterations: int) -> dict:
@@ -93,7 +82,6 @@ def main() -> None:
             "agent.max_search_results": 50,
             "agent.allowed_commands": ["git"],
             "agent.command_timeout": 5,
-            "mcp.fallback_to_local": True,
             "mcp.call_timeout": 10,
             "mcp.startup_timeout": 15,
         }
@@ -112,9 +100,7 @@ def main() -> None:
                     "  command_timeout: 5",
                     "  max_search_results: 50",
                     "mcp:",
-                    "  enabled: true",
                     "  transport: \"stdio\"",
-                    "  fallback_to_local: true",
                     "  call_timeout: 10",
                     "  startup_timeout: 15",
                 ]
@@ -122,7 +108,7 @@ def main() -> None:
             encoding="utf-8",
         )
 
-        with patch("agent.tools.run_command.subprocess.run") as mock_run:
+        with patch("codemind_mcp.tool_impl.subprocess.run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(
                 args=["git", "status"],
                 returncode=0,
@@ -130,24 +116,24 @@ def main() -> None:
                 stderr="",
             )
 
-            local_values = dict(base_values, **{"mcp.enabled": False})
+            local_values = dict(base_values)
             with patch("utils.config.Config.get", side_effect=lambda key, default=None: local_values.get(key, default)):
                 local_rows = [
-                    _measure("Local ReadFile", lambda: ReadFile.invoke({"file_path": "src/main.py"}), args.iterations),
-                    _measure("Local SearchCode", lambda: SearchCode.invoke({"query": "needle"}), args.iterations),
-                    _measure("Local RunCommand", lambda: RunCommand.invoke({"command": "git status"}), args.iterations),
+                    _measure("Core ReadFile", lambda: read_file_impl("src/main.py"), args.iterations),
+                    _measure("Core SearchCode", lambda: search_code_impl("needle"), args.iterations),
+                    _measure("Core RunCommand", lambda: run_command_impl("git status"), args.iterations),
                 ]
 
-            local_mcp_values = dict(base_values, **{"mcp.enabled": True, "mcp.transport": "local"})
+            local_mcp_values = dict(base_values, **{"mcp.transport": "local"})
             with patch("utils.config.Config.get", side_effect=lambda key, default=None: local_mcp_values.get(key, default)):
-                local_client = MCPClient()
+                local_client = MCPHostClient()
                 local_client.initialize()
-                initialize_mcp_tool_service_manager(_ServiceManagerStub(local_client))
                 try:
+                    mcp_tools = {tool.name: tool for tool in build_langchain_mcp_tools(local_client)}
                     mcp_local_rows = [
-                        _measure("MCP(local) ReadFile", lambda: MCPReadFile.invoke({"file_path": "src/main.py"}), args.iterations),
-                        _measure("MCP(local) SearchCode", lambda: MCPSearchCode.invoke({"query": "needle"}), args.iterations),
-                        _measure("MCP(local) RunCommand", lambda: MCPRunCommand.invoke({"command": "git status"}), args.iterations),
+                        _measure("MCP(local) ReadFile", lambda: mcp_tools["codemind_read_file"].invoke({"file_path": "src/main.py"}), args.iterations),
+                        _measure("MCP(local) SearchCode", lambda: mcp_tools["codemind_search_code"].invoke({"query": "needle"}), args.iterations),
+                        _measure("MCP(local) RunCommand", lambda: mcp_tools["codemind_run_command"].invoke({"command": "git status"}), args.iterations),
                     ]
                 finally:
                     local_client.close()
@@ -162,26 +148,25 @@ def main() -> None:
                     "-n",
                     "AIP312",
                     "python",
-                    str(PROJECT_ROOT / "mcp" / "server.py"),
+                    str(PROJECT_ROOT / "codemind_mcp" / "server.py"),
                 ]
                 stdio_values = dict(
                     base_values,
                     **{
-                        "mcp.enabled": True,
                         "mcp.transport": "stdio",
                         "mcp.server_command": stdio_server_command,
                         "mcp.server_env": {"CODEMIND_CONFIG_PATH": str(benchmark_config)},
                     },
                 )
                 with patch("utils.config.Config.get", side_effect=lambda key, default=None: stdio_values.get(key, default)):
-                    stdio_client = MCPClient()
+                    stdio_client = MCPHostClient()
                     stdio_client.initialize()
-                    initialize_mcp_tool_service_manager(_ServiceManagerStub(stdio_client))
                     try:
+                        mcp_tools = {tool.name: tool for tool in build_langchain_mcp_tools(stdio_client)}
                         stdio_rows = [
-                            _measure("MCP(stdio) ReadFile", lambda: MCPReadFile.invoke({"file_path": "src/main.py"}), args.iterations),
-                            _measure("MCP(stdio) SearchCode", lambda: MCPSearchCode.invoke({"query": "needle"}), args.iterations),
-                            _measure("MCP(stdio) RunCommand", lambda: MCPRunCommand.invoke({"command": "git status"}), args.iterations),
+                            _measure("MCP(stdio) ReadFile", lambda: mcp_tools["codemind_read_file"].invoke({"file_path": "src/main.py"}), args.iterations),
+                            _measure("MCP(stdio) SearchCode", lambda: mcp_tools["codemind_search_code"].invoke({"query": "needle"}), args.iterations),
+                            _measure("MCP(stdio) RunCommand", lambda: mcp_tools["codemind_run_command"].invoke({"command": "git status"}), args.iterations),
                         ]
                     finally:
                         stdio_client.close()

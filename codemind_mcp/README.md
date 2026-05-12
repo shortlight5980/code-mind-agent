@@ -1,6 +1,6 @@
 # CodeMind MCP
 
-`mcp/` 目录提供 CodeMind 的 MCP 服务层，把原本适合独立暴露的工具封装成 MCP tools，同时保留原 `agent/tools/*` 作为降级路径。
+`codemind_mcp/` 目录提供 CodeMind 的 MCP 服务层，把原本适合独立暴露的工具封装成 MCP tools，同时保留原 `agent/tools/*` 作为降级路径。
 
 ## 目标
 
@@ -11,7 +11,7 @@
 ## 目录结构
 
 ```text
-mcp/
+codemind_mcp/
 ├── README.md
 ├── __init__.py
 ├── sdk.py
@@ -33,11 +33,11 @@ mcp/
 
 ## 核心文件
 
-- [server.py](/home/ljw/桌面/CodeMind/code-mind-agent/mcp/server.py): MCP 服务入口，负责工具注册与调用分发。
-- [sdk.py](/home/ljw/桌面/CodeMind/code-mind-agent/mcp/sdk.py): 第三方 MCP SDK 兼容加载层。
-- [tools/base.py](/home/ljw/桌面/CodeMind/code-mind-agent/mcp/tools/base.py): 统一的工具基类。
-- [security.py](/home/ljw/桌面/CodeMind/code-mind-agent/mcp/security.py): 复用 `agent.security`。
-- [tool_paths.py](/home/ljw/桌面/CodeMind/code-mind-agent/mcp/tool_paths.py): 复用 `agent.tool_paths`。
+- [server.py](/home/ljw/桌面/CodeMind/code-mind-agent/codemind_mcp/server.py): MCP 服务入口，负责工具注册与调用分发。
+- [sdk.py](/home/ljw/桌面/CodeMind/code-mind-agent/codemind_mcp/sdk.py): 第三方 MCP SDK 兼容加载层。
+- [tools/base.py](/home/ljw/桌面/CodeMind/code-mind-agent/codemind_mcp/tools/base.py): 统一的工具基类。
+- [security.py](/home/ljw/桌面/CodeMind/code-mind-agent/codemind_mcp/security.py): 复用 `agent.security`。
+- [tool_paths.py](/home/ljw/桌面/CodeMind/code-mind-agent/codemind_mcp/tool_paths.py): 复用 `agent.tool_paths`。
 
 ## 可用工具
 
@@ -52,31 +52,24 @@ mcp/
 
 ## 实现方式
 
-`mcp/tools/*` 目前主要是“包装层”：
+`codemind_mcp/tools/*` 当前分为两类：
 
-- `ReadFileTool` 复用 `agent.tools.read_file.ReadFile`
-- `SearchCodeTool` 复用 `agent.tools.search_code.SearchCode`
-- `RunCommandTool` 复用 `agent.tools.run_command.RunCommand`
+- `ReadFileTool`、`SearchCodeTool`、`RunCommandTool` 调用 `codemind_mcp/tool_impl.py` 中的 MCP 自有实现
 - 索引管理工具复用 `scripts/` 下的索引脚本入口函数
 
-这样做的目的是保持 MCP 路径和原 Agent 路径的行为一致。
+这样做的目的是让 `read_file`、`search_code`、`run_command` 彻底归 MCP 持有，同时保留可复用的底层逻辑。
 
-## 关于 `mcp` 包名冲突
+Agent 侧不再保留这三个工具的本地实现，也不再支持本地 fallback。
 
-仓库本地目录名也叫 `mcp`，而第三方 SDK 的包名同样是 `mcp`。这会带来导入冲突。
+## 关于包名
 
-当前通过 [sdk.py](/home/ljw/桌面/CodeMind/code-mind-agent/mcp/sdk.py) 处理：
+仓库内的服务包已重命名为 `codemind_mcp/`，第三方 SDK 继续使用其原始包名 `mcp`。
 
-- 包导入模式下，如果外部 MCP SDK 可正确加载，则使用真实 `Server`、`stdio_server`、`Tool`
-- 如果当前环境无法拿到外部 SDK，则退回本地 shim，保证单元测试和本地分发逻辑仍可运行
-- 脚本模式 `python mcp/server.py` 下，`server.py` 会先加载外部 SDK，再把本地 `mcp/` 目录以别名包 `codemind_local_mcp` 引入，避免本地包和第三方 SDK 同名冲突
+这样处理后：
 
-这意味着当前实现已经支持：
-
-- `python mcp/server.py` 直接启动
-- 本地测试和工具分发验证
-
-但“真实 MCP stdio 联调”仍建议单独做一轮手工确认。
+- 本地服务代码统一从 `codemind_mcp.*` 导入
+- 外部 SDK 统一从 `mcp.*` 导入
+- 不再需要通过修改 `sys.path` 或清理 `sys.modules` 来规避同名冲突
 
 ## 启动方式
 
@@ -93,13 +86,13 @@ mcp>=1.0.0
 按仓库约定，推荐在 `AIP312` 环境中运行：
 
 ```bash
-PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python mcp/server.py
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python codemind_mcp/server.py
 ```
 
 如果你已经激活了 `AIP312`，也可以直接运行：
 
 ```bash
-python mcp/server.py
+python codemind_mcp/server.py
 ```
 
 当前版本已经修复了这条命令的启动问题。
@@ -121,7 +114,7 @@ python mcp/server.py
         "-n",
         "AIP312",
         "python",
-        "/home/ljw/桌面/CodeMind/code-mind-agent/mcp/server.py"
+        "/home/ljw/桌面/CodeMind/code-mind-agent/codemind_mcp/server.py"
       ]
     }
   }
@@ -156,7 +149,7 @@ PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 pyth
 - MCP 目录结构
 - 服务入口与工具注册
 - 6 个工具的包装
-- `python mcp/server.py` 直接启动支持
+- `python codemind_mcp/server.py` 直接启动支持
 - MCP 单元测试
 - 原工具降级路径保留
 

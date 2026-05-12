@@ -6,9 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.tools.run_command import RunCommand
-
 from .base import BaseMCPTool
+from ..tool_impl import run_command_impl
 
 
 class RunCommandTool(BaseMCPTool):
@@ -34,4 +33,4 @@ class RunCommandTool(BaseMCPTool):
         }
 
     async def call(self, arguments: dict[str, Any]) -> str:
-        return RunCommand.invoke(arguments)
+        return run_command_impl(command=arguments["command"])

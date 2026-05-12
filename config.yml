@@ -68,7 +68,6 @@ agent:
   max_search_results: 50
 
 mcp:
-  enabled: true
   transport: "stdio"  # stdio / local
   server_command:
     - "conda"
@@ -77,7 +76,6 @@ mcp:
     - "-n"
     - "AIP312"
     - "python"
-    - "/home/ljw/桌面/CodeMind/code-mind-agent/mcp/server.py"
+    - "/home/ljw/桌面/CodeMind/code-mind-agent/codemind_mcp/server.py"
   call_timeout: 10
   startup_timeout: 15
-  fallback_to_local: true

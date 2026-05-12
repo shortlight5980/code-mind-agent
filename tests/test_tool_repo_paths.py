@@ -4,10 +4,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from agent.tools.read_file import ReadFile
 from agent.tools.output_truncation import MAX_TOOL_OUTPUT_CHARS
-from agent.tools.run_command import RunCommand
-from agent.tools.search_code import SearchCode
+from codemind_mcp.tool_impl import read_file_impl, run_command_impl, search_code_impl
 
 
 class ToolRepoPathTests(unittest.TestCase):
@@ -26,7 +24,7 @@ class ToolRepoPathTests(unittest.TestCase):
             }
 
             with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
-                result = ReadFile.invoke({"file_path": "src/main.py"})
+                result = read_file_impl("src/main.py")
 
         self.assertIn("repo path works", result)
         self.assertIn(str(target), result)
@@ -44,7 +42,7 @@ class ToolRepoPathTests(unittest.TestCase):
             }
 
             with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
-                result = SearchCode.invoke({"query": "needle"})
+                result = search_code_impl("needle")
 
         self.assertIn("app.py", result)
         self.assertIn("needle = 'in repo'", result)
@@ -69,9 +67,9 @@ class ToolRepoPathTests(unittest.TestCase):
 
             with (
                 patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)),
-                patch("agent.tools.run_command.subprocess.run", return_value=completed) as mock_run,
+                patch("codemind_mcp.tool_impl.subprocess.run", return_value=completed) as mock_run,
             ):
-                result = RunCommand.invoke({"command": "git rev-parse --show-toplevel"})
+                result = run_command_impl("git rev-parse --show-toplevel")
 
         self.assertIn(str(repo_root), result)
         self.assertEqual(str(repo_root), mock_run.call_args.kwargs["cwd"])
@@ -90,7 +88,7 @@ class ToolRepoPathTests(unittest.TestCase):
             }
 
             with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
-                result = ReadFile.invoke({"file_path": "large.txt"})
+                result = read_file_impl("large.txt")
 
         self.assertIn("[警告] ReadFile 输出过长，已截断。", result)
         self.assertLess(len(result), MAX_TOOL_OUTPUT_CHARS + 300)
@@ -110,7 +108,7 @@ class ToolRepoPathTests(unittest.TestCase):
             }
 
             with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
-                result = SearchCode.invoke({"query": "needle"})
+                result = search_code_impl("needle")
 
         self.assertIn("[警告] SearchCode 输出过长，已截断。", result)
         self.assertLess(len(result), MAX_TOOL_OUTPUT_CHARS + 300)
@@ -135,9 +133,9 @@ class ToolRepoPathTests(unittest.TestCase):
 
             with (
                 patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)),
-                patch("agent.tools.run_command.subprocess.run", return_value=completed),
+                patch("codemind_mcp.tool_impl.subprocess.run", return_value=completed),
             ):
-                result = RunCommand.invoke({"command": "git status"})
+                result = run_command_impl("git status")
 
         self.assertIn("[警告] RunCommand 输出过长，已截断。", result)
         self.assertLess(len(result), MAX_TOOL_OUTPUT_CHARS + 300)

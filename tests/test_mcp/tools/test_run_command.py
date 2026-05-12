@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from mcp.tools.run_command import RunCommandTool
+from codemind_mcp.tools.run_command import RunCommandTool
 
 
 class RunCommandToolTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class RunCommandToolTests(unittest.TestCase):
 
             with (
                 patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)),
-                patch("agent.tools.run_command.subprocess.run", return_value=completed),
+                patch("codemind_mcp.tool_impl.subprocess.run", return_value=completed),
             ):
                 result = asyncio.run(RunCommandTool().call({"command": "git status"}))
 
@@ -50,4 +50,3 @@ class RunCommandToolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

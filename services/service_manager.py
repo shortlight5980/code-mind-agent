@@ -15,8 +15,8 @@ from utils.bm25_index import BM25Index
 from utils.query_rewriting import create_query_rewriter
 from utils.summarizer import create_summarizer
 from agent.agent import CodeMindAgent
-from agent.mcp_client import MCPClient
-from agent.tools import initialize_mcp_tool_service_manager, initialize_tool_service_manager
+from agent.mcp_host import MCPHostClient
+from agent.tools import initialize_tool_service_manager
 
 logger = get_logger("service_manager")
 
@@ -81,7 +81,6 @@ class ServiceManager:
 
         # 初始化工具的服务管理器引用
         initialize_tool_service_manager(self)
-        initialize_mcp_tool_service_manager(self)
 
         self._initialized = True
         logger.info("所有服务初始化完成")
@@ -174,7 +173,7 @@ class ServiceManager:
         """初始化CodeMind Agent"""
         logger.info("初始化CodeMind Agent...")
         try:
-            agent = CodeMindAgent()
+            agent = CodeMindAgent(mcp_client=self.mcp_client)
             self._services["agent"] = agent
             logger.info("CodeMind Agent初始化成功")
         except Exception as e:
@@ -183,13 +182,8 @@ class ServiceManager:
 
     def _init_mcp_client(self) -> None:
         """初始化 MCP 客户端。"""
-        if not Config.get("mcp.enabled", True):
-            self._services["mcp_client"] = None
-            logger.info("MCP client disabled by config")
-            return
-
         logger.info("初始化 MCP client...")
-        client = MCPClient()
+        client = MCPHostClient()
         client.initialize()
         self._services["mcp_client"] = client
         logger.info("MCP client 初始化完成")
@@ -259,7 +253,7 @@ class ServiceManager:
         return self._services.get("agent")
 
     @property
-    def mcp_client(self) -> Optional[MCPClient]:
+    def mcp_client(self) -> Optional[MCPHostClient]:
         """MCP客户端服务"""
         return self._services.get("mcp_client")
 

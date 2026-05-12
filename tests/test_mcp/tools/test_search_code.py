@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from mcp.tools.search_code import SearchCodeTool
+from codemind_mcp.tools.search_code import SearchCodeTool
 
 
 class SearchCodeToolTests(unittest.TestCase):

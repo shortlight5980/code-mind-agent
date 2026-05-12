@@ -1,44 +1,39 @@
 """
-MCP client wrapper used by the Agent-side proxy tools.
+Host-side MCP integration for dynamically discovering and calling MCP tools.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import importlib
 import os
-import sys
 from concurrent.futures import Future
 from dataclasses import dataclass
 from threading import Thread
 from typing import Any
 
+from langchain_core.tools import StructuredTool
+from pydantic import create_model
+
 from utils.config import Config
 from utils.logger import get_logger
 
-logger = get_logger("agent.mcp_client")
+logger = get_logger("agent.mcp_host")
 
 
-class MCPClientError(RuntimeError):
-    """Raised when MCP client operations fail."""
+class MCPHostError(RuntimeError):
+    """Raised when host-side MCP integration fails."""
 
 
 class _AsyncioLoopThread:
-    """Run a dedicated event loop for the MCP session."""
-
     def __init__(self) -> None:
         self._loop = asyncio.new_event_loop()
-        self._thread = Thread(target=self._run, daemon=True, name="codemind-mcp-client")
+        self._thread = Thread(target=self._run, daemon=True, name="codemind-mcp-host")
         self._thread.start()
 
     def _run(self) -> None:
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
-
-    def run(self, coro) -> Any:
-        future: Future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result()
 
     def stop(self) -> None:
         self._loop.call_soon_threadsafe(self._loop.stop)
@@ -53,61 +48,24 @@ class _WorkerRequest:
     future: Future
 
 
-def _import_external_mcp_client():
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    local_mcp_root = os.path.join(project_root, "mcp")
-    original_sys_path = list(sys.path)
-    removed_modules = {
-        name: module
-        for name, module in list(sys.modules.items())
-        if name == "mcp" or name.startswith("mcp.")
-    }
-    try:
-        for name in list(removed_modules):
-            sys.modules.pop(name, None)
-        sys.path = [
-            path for path in sys.path
-            if os.path.abspath(path or os.getcwd()) not in {project_root, local_mcp_root}
-        ]
-        client_root = importlib.import_module("mcp")
-        client_stdio = importlib.import_module("mcp.client.stdio")
-        types_module = importlib.import_module("mcp.types")
-        return (
-            getattr(client_root, "ClientSession"),
-            getattr(client_stdio, "stdio_client"),
-            getattr(client_stdio, "StdioServerParameters"),
-            types_module,
-        )
-    finally:
-        sys.path = original_sys_path
-        for name, module in removed_modules.items():
-            sys.modules[name] = module
-
-
-class MCPClient:
-    """Synchronous facade over the async MCP stdio client."""
+class MCPHostClient:
+    """Reusable host-side client for listing and calling MCP server tools."""
 
     def __init__(
         self,
         *,
-        enabled: bool | None = None,
         transport: str | None = None,
         server_command: list[str] | None = None,
         call_timeout: float | None = None,
         startup_timeout: float | None = None,
-        fallback_to_local: bool | None = None,
     ) -> None:
-        self.enabled = Config.get("mcp.enabled", True) if enabled is None else enabled
         self.transport = Config.get("mcp.transport", "stdio") if transport is None else transport
         self.server_command = server_command or Config.get("mcp.server_command", self._default_server_command())
         self.server_env = Config.get("mcp.server_env", {})
-        self.call_timeout = float(
-            Config.get("mcp.call_timeout", 10) if call_timeout is None else call_timeout
-        )
+        self.call_timeout = float(Config.get("mcp.call_timeout", 10) if call_timeout is None else call_timeout)
         self.startup_timeout = float(
             Config.get("mcp.startup_timeout", 15) if startup_timeout is None else startup_timeout
         )
-        self.fallback_to_local = Config.get("mcp.fallback_to_local", True) if fallback_to_local is None else fallback_to_local
 
         self._loop_thread: _AsyncioLoopThread | None = None
         self._initialized = False
@@ -118,19 +76,16 @@ class MCPClient:
     @staticmethod
     def _default_server_command() -> list[str]:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        server_path = os.path.join(project_root, "mcp", "server.py")
+        server_path = os.path.join(project_root, "codemind_mcp", "server.py")
         return ["conda", "run", "--no-capture-output", "-n", "AIP312", "python", server_path]
 
     def initialize(self) -> None:
-        if not self.enabled:
-            logger.info("MCP client disabled by config")
-            return
         if self._initialized:
             return
 
         if self.transport.lower() == "local":
             self._initialized = True
-            logger.info("MCP client initialized with local transport")
+            logger.info("MCP host client initialized with local transport")
             return
 
         self._loop_thread = _AsyncioLoopThread()
@@ -150,28 +105,26 @@ class MCPClient:
 
     async def _worker(self, startup_future: Future) -> None:
         try:
-            client_session, stdio_client, server_parameters, _ = _import_external_mcp_client()
+            from mcp import ClientSession, types
+            from mcp.client.stdio import StdioServerParameters, stdio_client
         except Exception as exc:
-            startup_future.set_exception(MCPClientError(f"Failed to import external MCP client SDK: {exc}"))
+            startup_future.set_exception(MCPHostError(f"Failed to import external MCP client SDK: {exc}"))
             return
 
-        params_kwargs = {
-            "command": self.server_command[0],
-            "args": self.server_command[1:],
-        }
+        params_kwargs = {"command": self.server_command[0], "args": self.server_command[1:]}
         if self.server_env:
             params_kwargs["env"] = {str(k): str(v) for k, v in self.server_env.items()}
-        params = server_parameters(**params_kwargs)
+        params = StdioServerParameters(**params_kwargs)
         self._request_queue = asyncio.Queue()
 
         async with stdio_client(params) as (read_stream, write_stream):
-            async with client_session(
+            async with ClientSession(
                 read_stream,
                 write_stream,
                 read_timeout_seconds=dt.timedelta(seconds=self.call_timeout),
             ) as session:
                 await asyncio.wait_for(session.initialize(), timeout=self.startup_timeout)
-                logger.info("MCP client initialized")
+                logger.info("MCP host client initialized")
                 startup_future.set_result(True)
 
                 while True:
@@ -181,10 +134,14 @@ class MCPClient:
                         return
                     try:
                         if request.action == "list_tools":
-                            result = await asyncio.wait_for(session.list_tools(), timeout=self.call_timeout)
-                            request.future.set_result(
-                                [self._tool_to_dict(tool) for tool in result.tools]
+                            req = types.ListToolsRequest()
+                            params = getattr(req, "params", None)
+                            cursor = getattr(params, "cursor", None) if params is not None else None
+                            result = await asyncio.wait_for(
+                                session.list_tools(cursor=cursor, params=params),
+                                timeout=self.call_timeout,
                             )
+                            request.future.set_result([self._tool_to_dict(tool) for tool in result.tools])
                         elif request.action == "call_tool":
                             name, arguments = request.payload
                             result = await session.call_tool(
@@ -194,7 +151,7 @@ class MCPClient:
                             )
                             request.future.set_result(self._flatten_content(result.content))
                         else:
-                            request.future.set_exception(MCPClientError(f"Unknown worker action: {request.action}"))
+                            request.future.set_exception(MCPHostError(f"Unknown worker action: {request.action}"))
                     except Exception as exc:
                         request.future.set_exception(exc)
 
@@ -224,11 +181,11 @@ class MCPClient:
         return self._submit_worker_request("list_tools", None)
 
     async def _async_list_tools(self) -> list[dict[str, Any]]:
-        if self.transport.lower() == "local":
-            from mcp.server import list_registered_tools
+        if self.transport.lower() != "local":
+            raise MCPHostError("_async_list_tools should not be used for stdio transport")
+        from codemind_mcp.server import list_registered_tools
 
-            return [self._tool_to_dict(tool) for tool in await list_registered_tools()]
-        raise MCPClientError("_async_list_tools should not be used for stdio transport")
+        return [self._tool_to_dict(tool) for tool in await list_registered_tools()]
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> str:
         self._ensure_available()
@@ -237,22 +194,17 @@ class MCPClient:
         return self._submit_worker_request("call_tool", (name, arguments or {}))
 
     async def _async_call_tool(self, name: str, arguments: dict[str, Any]) -> str:
-        if self.transport.lower() == "local":
-            from mcp.server import call_registered_tool
+        if self.transport.lower() != "local":
+            raise MCPHostError("_async_call_tool should not be used for stdio transport")
+        from codemind_mcp.server import call_registered_tool
 
-            return await asyncio.wait_for(
-                call_registered_tool(name, arguments),
-                timeout=self.call_timeout,
-            )
-        raise MCPClientError("_async_call_tool should not be used for stdio transport")
+        return await asyncio.wait_for(call_registered_tool(name, arguments), timeout=self.call_timeout)
 
     def health_check(self) -> bool:
-        if not self.enabled:
-            return False
         try:
             return bool(self.list_tools())
         except Exception as exc:
-            logger.warning(f"MCP health check failed: {exc}")
+            logger.warning(f"MCP host health check failed: {exc}")
             return False
 
     @property
@@ -260,14 +212,12 @@ class MCPClient:
         return self._initialized
 
     def _ensure_available(self) -> None:
-        if not self.enabled:
-            raise MCPClientError("MCP client is disabled")
         if not self._initialized:
-            raise MCPClientError("MCP client is not initialized")
+            raise MCPHostError("MCP host client is not initialized")
 
     def _submit_worker_request(self, action: str, payload: Any) -> Any:
         if self._loop_thread is None or self._request_queue is None:
-            raise MCPClientError("MCP worker is not running")
+            raise MCPHostError("MCP host worker is not running")
         result_future: Future = Future()
         request = _WorkerRequest(action=action, payload=payload, future=result_future)
         enqueue = self._request_queue.put(request)
@@ -281,8 +231,8 @@ class MCPClient:
             text = getattr(item, "text", None)
             if text is not None:
                 parts.append(text)
-                continue
-            parts.append(str(item))
+            else:
+                parts.append(str(item))
         return "\n".join(part for part in parts if part).strip()
 
     @staticmethod
@@ -292,3 +242,52 @@ class MCPClient:
             "description": getattr(tool, "description", ""),
             "inputSchema": getattr(tool, "inputSchema", {}),
         }
+
+
+def _json_schema_to_python_type(schema: dict[str, Any]) -> Any:
+    schema_type = schema.get("type", "string")
+    if schema_type == "integer":
+        return int
+    if schema_type == "number":
+        return float
+    if schema_type == "boolean":
+        return bool
+    if schema_type == "array":
+        return list
+    if schema_type == "object":
+        return dict
+    return str
+
+
+def build_langchain_mcp_tools(host_client: MCPHostClient) -> list[StructuredTool]:
+    """Fetch MCP tools and adapt them into LangChain tools."""
+
+    tools = []
+    for tool_def in host_client.list_tools():
+        schema = tool_def.get("inputSchema", {})
+        properties = schema.get("properties", {})
+        required = set(schema.get("required", []))
+        fields = {}
+        for field_name, field_schema in properties.items():
+            python_type = _json_schema_to_python_type(field_schema)
+            default = ... if field_name in required else field_schema.get("default", None)
+            fields[field_name] = (python_type, default)
+
+        args_model = create_model(f"MCPToolInput_{tool_def['name']}", **fields)
+
+        def _invoke_factory(tool_name: str):
+            def _invoke(**kwargs):
+                return host_client.call_tool(tool_name, kwargs)
+
+            return _invoke
+
+        tools.append(
+            StructuredTool.from_function(
+                func=_invoke_factory(tool_def["name"]),
+                name=tool_def["name"],
+                description=tool_def.get("description", tool_def["name"]),
+                args_schema=args_model,
+            )
+        )
+
+    return tools

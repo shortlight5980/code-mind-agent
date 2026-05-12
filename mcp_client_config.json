@@ -8,7 +8,7 @@
         "-n",
         "AIP312",
         "python",
-        "/home/ljw/桌面/CodeMind/code-mind-agent/mcp/server.py"
+        "/home/ljw/桌面/CodeMind/code-mind-agent/codemind_mcp/server.py"
       ]
     }
   }

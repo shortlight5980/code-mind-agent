@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from mcp.server import call_registered_tool, get_tools, list_registered_tools
+from codemind_mcp.server import call_registered_tool, get_tools, list_registered_tools
 
 
 class MCPServerTests(unittest.TestCase):
@@ -40,4 +40,3 @@ class MCPServerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

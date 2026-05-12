@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from mcp.tools.read_file import ReadFileTool
+from codemind_mcp.tools.read_file import ReadFileTool
 
 
 class ReadFileToolTests(unittest.TestCase):
@@ -49,4 +49,3 @@ class ReadFileToolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

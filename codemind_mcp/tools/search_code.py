@@ -6,9 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.tools.search_code import SearchCode
-
 from .base import BaseMCPTool
+from ..tool_impl import search_code_impl
 
 
 class SearchCodeTool(BaseMCPTool):
@@ -44,4 +43,8 @@ class SearchCodeTool(BaseMCPTool):
         }
 
     async def call(self, arguments: dict[str, Any]) -> str:
-        return SearchCode.invoke(arguments)
+        return search_code_impl(
+            query=arguments["query"],
+            is_regex=arguments.get("is_regex", False),
+            search_dir=arguments.get("search_dir", "."),
+        )

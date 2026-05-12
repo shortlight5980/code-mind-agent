@@ -6,9 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.tools.read_file import ReadFile
-
 from .base import BaseMCPTool
+from ..tool_impl import read_file_impl
 
 
 class ReadFileTool(BaseMCPTool):
@@ -44,4 +43,8 @@ class ReadFileTool(BaseMCPTool):
         }
 
     async def call(self, arguments: dict[str, Any]) -> str:
-        return ReadFile.invoke(arguments)
+        return read_file_impl(
+            file_path=arguments["file_path"],
+            start_line=arguments.get("start_line"),
+            end_line=arguments.get("end_line"),
+        )
