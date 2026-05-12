@@ -5,7 +5,7 @@
 ```mermaid
 graph TB
     subgraph "客户端层"
-        claude[Claude Desktop]
+        mcp_client[MCP Client]
         custom[自定义客户端]
     end
 
@@ -39,7 +39,7 @@ graph TB
         tool_paths[Tool Paths]
     end
 
-    claude -->|MCP Protocol| mcp_server
+    mcp_client -->|MCP Protocol| mcp_server
     custom -->|HTTP| fastapi
 
     mcp_server -->|使用| mcp_tools
@@ -125,7 +125,7 @@ code-mind-agent/
 │           └── test_run_command.py
 ├── config.yml                      # 共享配置
 ├── requirements.txt                # 添加MCP依赖
-└── claude_desktop_config.json      # ⭐ 新增：Claude Desktop配置
+└── mcp_client_config.json          # ⭐ 新增：MCP客户端配置示例
 ```
 
 ## 依赖关系

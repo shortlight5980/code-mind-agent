@@ -22,8 +22,8 @@
 - [ ] 实现了 ReadFileTool 类
 - [ ] 在 server.py 中注册了 ReadFileTool
 - [ ] 编写了 `tests/test_mcp/tools/test_read_file.py`
-- [ ] 创建了 `claude_desktop_config.json`
-- [ ] 在 Claude Desktop 中测试 ReadFile 成功
+- [ ] 创建了 `mcp_client_config.json`
+- [ ] 在 MCP 客户端中测试 ReadFile 成功
 - [ ] 验证了安全限制（敏感文件、目录白名单）
 - [ ] 验证了按行号读取
 - [ ] 验证了文件名搜索功能
@@ -35,7 +35,7 @@
 - [ ] 实现了 SearchCodeTool 类
 - [ ] 在 server.py 中注册了 SearchCodeTool
 - [ ] 编写了 `tests/test_mcp/tools/test_search_code.py`
-- [ ] 在 Claude Desktop 中测试 SearchCode 成功
+- [ ] 在 MCP 客户端中测试 SearchCode 成功
 - [ ] 验证了关键词搜索
 - [ ] 验证了正则表达式搜索
 - [ ] 验证了目录限制
@@ -47,7 +47,7 @@
 - [ ] 实现了 RunCommandTool 类
 - [ ] 在 server.py 中注册了 RunCommandTool
 - [ ] 编写了 `tests/test_mcp/tools/test_run_command.py`
-- [ ] 在 Claude Desktop 中测试 RunCommand 成功
+- [ ] 在 MCP 客户端中测试 RunCommand 成功
 - [ ] 验证了命令白名单
 - [ ] 验证了禁止的参数（如 ls -R）
 - [ ] 验证了超时机制
@@ -63,7 +63,7 @@
 - [ ] 实现了 DeleteByFilePathTool
 - [ ] 在 server.py 中注册了索引管理工具
 - [ ] 编写了相应测试
-- [ ] 在 Claude Desktop 中测试索引功能成功
+- [ ] 在 MCP 客户端中测试索引功能成功
 - [ ] 验证了索引写入正确位置
 
 ## 阶段六检查清单

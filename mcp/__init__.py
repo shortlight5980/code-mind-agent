@@ -1,0 +1,4 @@
+"""
+CodeMind MCP service package.
+"""
+

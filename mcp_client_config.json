@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "codemind-agent": {
+      "command": "conda",
+      "args": [
+        "run",
+        "--no-capture-output",
+        "-n",
+        "AIP312",
+        "python",
+        "/home/ljw/桌面/CodeMind/code-mind-agent/mcp/server.py"
+      ]
+    }
+  }
+}

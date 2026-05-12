@@ -45,10 +45,45 @@
   - task_plan.md（更新）
   - progress.md（更新）
 
+### Phase 3: MCP 服务与工具迁移实现
+- **Status:** completed
+- **Started:** 2026-05-12 12:40
+- **Completed:** 2026-05-12 13:07
+- Actions taken:
+  - 新建 `mcp/` 服务目录、工具目录和服务器入口
+  - 实现了 `BaseMCPTool` 以及 `ReadFile`、`SearchCode`、`RunCommand` 的 MCP 包装
+  - 实现了索引管理 MCP 工具：全量索引、增量添加、按路径删除
+  - 添加了 `claude_desktop_config.json`
+  - 更新 `requirements.txt`，加入 `mcp>=1.0.0`
+  - 新增 `tests/test_mcp/` 测试覆盖服务器分发与工具包装
+  - 运行新增 MCP 测试与原工具回归测试，确认降级路径未损坏
+- Files created/modified:
+  - mcp/__init__.py（创建）
+  - mcp/sdk.py（创建）
+  - mcp/server.py（创建）
+  - mcp/security.py（创建）
+  - mcp/tool_paths.py（创建）
+  - mcp/tools/base.py（创建）
+  - mcp/tools/read_file.py（创建）
+  - mcp/tools/search_code.py（创建）
+  - mcp/tools/run_command.py（创建）
+  - mcp/tools/index_manager/__init__.py（创建）
+  - mcp/tools/index_manager/index_repo.py（创建）
+  - mcp/tools/index_manager/add_by_file_path.py（创建）
+  - mcp/tools/index_manager/delete_by_file_path.py（创建）
+  - tests/test_mcp/test_server.py（创建）
+  - tests/test_mcp/tools/test_read_file.py（创建）
+  - tests/test_mcp/tools/test_search_code.py（创建）
+  - tests/test_mcp/tools/test_run_command.py（创建）
+  - tests/test_mcp/tools/test_index_manager.py（创建）
+  - claude_desktop_config.json（创建）
+  - requirements.txt（更新）
+
 ## Test Results
 | Test | Input | Expected | Actual | Status |
 |------|-------|----------|--------|--------|
-| （文档阶段暂不涉及） | - | - | - | - |
+| `python -m unittest tests.test_mcp.test_server tests.test_mcp.tools.test_read_file tests.test_mcp.tools.test_search_code tests.test_mcp.tools.test_run_command tests.test_mcp.tools.test_index_manager` | MCP 新增测试 | 全部通过 | 13/13 通过 | passed |
+| `python -m unittest tests.test_tool_repo_paths` | 原工具回归测试 | 全部通过 | 6/6 通过 | passed |
 
 ## Error Log
 | Timestamp | Error | Attempt | Resolution |
@@ -58,11 +93,11 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | 所有文档撰写已完成，准备开始实施 |
-| Where am I going? | 下一步按照 docs/mcp-migration/03-phased-migration.md 开始阶段一 |
-| What's the goal? | 已完成：根据方案二完成混合式MCP迁移的完整设计文档 |
+| Where am I? | MCP 阶段一到五的代码骨架与核心工具包装已完成 |
+| Where am I going? | 下一步补阶段六：端到端联调、性能基准、README/部署文档同步 |
+| What's the goal? | 根据方案二完成混合式MCP迁移的代码实现与验证 |
 | What have I learned? | 见 findings.md |
-| What have I done? | 分析项目结构、创建规划文件、完成所有设计文档 |
+| What have I done? | 完成文档、实现 MCP 服务骨架与工具包装、补测试并完成回归验证 |
 
 ---
 *Update after completing each phase or encountering errors*

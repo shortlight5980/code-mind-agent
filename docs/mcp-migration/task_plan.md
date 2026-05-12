@@ -5,10 +5,10 @@
 -->
 
 ## Goal
-根据方案二（混合式MCP）的设计，完成详细执行计划的文档撰写，为后续代码实现提供清晰指导。
+根据方案二（混合式MCP）的设计，完成 MCP 服务、工具迁移、索引包装与验证。
 
 ## Current Phase
-(文档阶段已完成)
+Phase 6: 集成测试与文档补完（进行中）
 
 ## Phases
 
@@ -25,26 +25,35 @@
 - [x] 绘制完整架构图（Mermaid）
 - **Status:** completed
 
-### Phase 3: 分阶段实施计划细化
-- [x] 细化阶段一：MCP服务器框架搭建
-- [x] 细化阶段二：ReadFile迁移
-- [x] 细化阶段三：SearchCode迁移
-- [x] 细化阶段四：RunCommand迁移
-- [x] 细化阶段五：索引脚本包装
-- [x] 细化阶段六：集成测试 & 文档
+### Phase 3: MCP服务器框架搭建
+- [x] 创建 `mcp/` 与 `mcp/tools/` 目录结构
+- [x] 实现 `mcp/server.py`
+- [x] 实现 `mcp/tools/base.py`
+- [x] 复用共享模块入口 `mcp/security.py`、`mcp/tool_paths.py`
+- [x] 更新 `requirements.txt`
 - **Status:** completed
 
-### Phase 4: 风险评估与缓解方案
-- [x] 识别技术风险点
-- [x] 制定降级方案
-- [x] 设计回滚策略
+### Phase 4: 工具迁移
+- [x] 迁移 `ReadFile`
+- [x] 迁移 `SearchCode`
+- [x] 迁移 `RunCommand`
+- [x] 保留原 `agent/tools/*` 降级路径
 - **Status:** completed
 
-### Phase 5: 交付物整理
-- [x] 整理所有设计文档
-- [x] 创建实施检查清单
-- [x] 编写开发指南
+### Phase 5: 索引脚本包装与测试
+- [x] 包装 `index_repo`
+- [x] 包装 `add_by_file_path`
+- [x] 包装 `delete_by_file_path`
+- [x] 创建 `tests/test_mcp/` 测试集
+- [x] 运行 MCP 测试与原工具回归测试
 - **Status:** completed
+
+### Phase 6: 集成测试与文档补完
+- [ ] Claude Desktop 端到端联调
+- [ ] MCP 服务器真实 stdio 启动验证
+- [ ] 性能基准测试
+- [ ] 更新 README / 部署与使用说明
+- **Status:** in_progress
 
 ## Key Questions
 1. 现有agent/tools/中哪些工具需要迁移，哪些需要保留？
@@ -57,6 +66,8 @@
 | 采用方案二：混合式MCP | 平衡性能与生态复用，核心检索保留在原应用，工具类迁移到MCP |
 | 先完成文档撰写，再开始编码 | 确保设计清晰，减少返工 |
 | 保留原应用工具副本作为降级路径 | 降低迁移风险，可随时切换回 |
+| MCP 层优先包装现有实现 | 避免与原工具逻辑漂移，降低迁移回归风险 |
+| 为本地 `mcp/` 包增加 SDK 兼容加载层 | 规避仓库目录名与第三方 `mcp` SDK 的命名冲突 |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |

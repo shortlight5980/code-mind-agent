@@ -21,3 +21,6 @@ rank-bm25>=0.2.2
 # Configuration
 python-dotenv>=1.0.0
 pyyaml>=6.0
+
+# MCP
+mcp>=1.0.0

@@ -70,8 +70,8 @@ graph LR
 - [ ] 实现 ReadFileTool 类（复用原逻辑）
 - [ ] 在 server.py 中注册 ReadFileTool
 - [ ] 编写 `tests/test_mcp/tools/test_read_file.py`
-- [ ] 创建 `claude_desktop_config.json`
-- [ ] 在 Claude Desktop 中测试 ReadFile 功能
+- [ ] 创建 `mcp_client_config.json`
+- [ ] 在 MCP 客户端中测试 ReadFile 功能
 - [ ] 验证安全机制正常工作
 - [ ] 验证路径解析正常工作
 
@@ -102,7 +102,7 @@ graph LR
 - [ ] 实现 SearchCodeTool 类（复用原逻辑）
 - [ ] 在 server.py 中注册 SearchCodeTool
 - [ ] 编写 `tests/test_mcp/tools/test_search_code.py`
-- [ ] 在 Claude Desktop 中测试 SearchCode 功能
+- [ ] 在 MCP 客户端中测试 SearchCode 功能
 - [ ] 验证关键词搜索
 - [ ] 验证正则表达式搜索
 
@@ -132,7 +132,7 @@ graph LR
 - [ ] 实现 RunCommandTool 类（复用原逻辑）
 - [ ] 在 server.py 中注册 RunCommandTool
 - [ ] 编写 `tests/test_mcp/tools/test_run_command.py`
-- [ ] 在 Claude Desktop 中测试 RunCommand 功能
+- [ ] 在 MCP 客户端中测试 RunCommand 功能
 - [ ] 验证命令白名单机制
 - [ ] 验证禁止的参数（如 ls -R）
 - [ ] 验证超时机制
@@ -167,7 +167,7 @@ graph LR
 - [ ] 创建 `mcp/tools/index_manager/delete_by_file_path.py` 实现 DeleteByFilePathTool
 - [ ] 在 server.py 中注册索引管理工具
 - [ ] 编写相应测试
-- [ ] 在 Claude Desktop 中测试索引功能
+- [ ] 在 MCP 客户端中测试索引功能
 
 ### 验收标准
 
@@ -202,7 +202,7 @@ graph LR
 
 ### 验收标准
 
-- 所有工具在 Claude Desktop 中正常工作
+- 所有工具在 MCP 客户端中正常工作
 - 原 FastAPI 应用依然完全正常工作
 - 性能无明显下降（核心检索保持原样）
 - 文档完整准确
@@ -225,6 +225,6 @@ graph LR
 
 1. [ ] 原应用所有单元测试通过
 2. [ ] MCP 服务能正常启动
-3. [ ] 已迁移工具在 Claude Desktop 中正常工作
+3. [ ] 已迁移工具在 MCP 客户端中正常工作
 4. [ ] 已迁移工具在原应用中依然正常工作
 5. [ ] 文档同步更新

@@ -680,7 +680,11 @@ class IndexRepoTool(BaseMCPTool):
             return f"Error: Indexing failed: {str(e)}"
 ```
 
-## Claude Desktop配置
+## MCP客户端配置示例
+
+不同的 MCP 客户端可能有不同的配置方式。以下是通用的配置说明：
+
+### 配置要点
 
 ```json
 {
@@ -688,9 +692,9 @@ class IndexRepoTool(BaseMCPTool):
     "codemind": {
       "command": "python",
       "args": [
-        "/home/ljw/桌面/CodeMind/code-mind-agent/mcp/server.py"
+        "/path/to/code-mind-agent/mcp/server.py"
       ],
-      "cwd": "/home/ljw/桌面/CodeMind/code-mind-agent",
+      "cwd": "/path/to/code-mind-agent",
       "env": {
         "PYTHONPATH": ".",
         "DASHSCOPE_API_KEY": "${env:DASHSCOPE_API_KEY}"
@@ -699,3 +703,18 @@ class IndexRepoTool(BaseMCPTool):
   }
 }
 ```
+
+### 配置说明
+
+| 配置项 | 说明 |
+|--------|------|
+| `command` | Python 解释器路径 |
+| `args` | MCP 服务器脚本路径 |
+| `cwd` | 工作目录（项目根目录） |
+| `env.PYTHONPATH` | Python 模块搜索路径 |
+| `env.DASHSCOPE_API_KEY` | API Key（从环境变量读取） |
+
+### 具体客户端配置
+
+请参考你使用的 MCP 客户端文档进行配置。
+
