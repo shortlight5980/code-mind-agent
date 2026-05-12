@@ -158,6 +158,7 @@ from utils.config import Config
 
 # 导入项目通用的日志记录模块。
 from utils.logger import get_logger
+from codemind_mcp.tools.output_truncation import truncate_tool_output
 
 # 初始化名为 "mcp.server" 的日志记录器实例，用于后续的服务日志输出。
 logger = get_logger("mcp.server")
@@ -253,6 +254,13 @@ async def call_registered_tool(name: str, arguments: dict | None = None) -> str:
     raise ValueError(f"Unknown tool: {name}")
 
 
+def _get_truncation_tool_name(name: str) -> str:
+    """将 MCP 工具名转换为截断提示里更易读的工具名。"""
+    if name.startswith("codemind_"):
+        name = name[len("codemind_"):]
+    return "".join(part.capitalize() for part in name.split("_") if part)
+
+
 # ==============================================================================
 # 7. MCP 协议接口实现
 # ==============================================================================
@@ -290,6 +298,7 @@ async def call_tool(name: str, arguments: dict):
     """
     # 执行具体的工具调用逻辑
     result = await call_registered_tool(name, arguments)
+    result = truncate_tool_output(result, _get_truncation_tool_name(name))
     
     # 检查是否拥有标准的 MCP 响应类型定义
     if TextContent and CallToolResult:

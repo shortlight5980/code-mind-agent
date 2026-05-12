@@ -11,14 +11,14 @@ import subprocess
 import sys
 from typing import Optional
 
-from agent.security import is_command_allowed, is_path_allowed, validate_file_access
-from agent.tool_paths import (
+from codemind_mcp.security import is_command_allowed, is_path_allowed, validate_file_access
+from codemind_mcp.tool_paths import (
     get_allowed_dirs,
     get_repo_path,
     get_repo_paths_for_read,
     resolve_repo_relative_path,
 )
-from agent.tools.output_truncation import truncate_tool_output
+from codemind_mcp.tools.output_truncation import truncate_tool_output
 from utils.config import Config
 from utils.logger import get_logger
 
@@ -63,7 +63,7 @@ def should_ignore_file(file_name: str) -> bool:
 
 
 def resolve_file_path(file_path: str, repo_path: str) -> Optional[str]:
-    from agent.security import normalize_path
+    from codemind_mcp.security import normalize_path
 
     if os.path.exists(file_path) and os.path.isfile(file_path):
         return normalize_path(file_path)
@@ -82,7 +82,7 @@ def resolve_file_path(file_path: str, repo_path: str) -> Optional[str]:
 
 
 def search_file_by_name(file_name: str, search_dirs: list[str]) -> list[str]:
-    from agent.security import normalize_path
+    from codemind_mcp.security import normalize_path
 
     allowed_dirs = get_allowed_dirs(include_repo_path=False)
     repo_path = get_repo_path()
@@ -106,7 +106,7 @@ def search_file_by_name(file_name: str, search_dirs: list[str]) -> list[str]:
 
 
 def get_absolute_path_for_display_path(display_path: str, repo_path: str) -> Optional[str]:
-    from agent.security import normalize_path
+    from codemind_mcp.security import normalize_path
 
     path_in_repo = os.path.join(repo_path, display_path)
     if os.path.exists(path_in_repo) and os.path.isfile(path_in_repo):
