@@ -71,17 +71,24 @@ repo:
 3. **MCP 配置（可选）**：默认开启 Agent -> MCP server 工具代理
 ```yaml
 mcp:
-  enabled: true
   transport: "stdio"   # stdio / local
-  fallback_to_local: true
+  server_command:      # stdio 模式下的 MCP server 启动命令
+    - "conda"
+    - "run"
+    - "--no-capture-output"
+    - "-n"
+    - "AIP312"
+    - "python"
+    - "/abs/path/to/code-mind-agent/codemind_mcp/server.py"
+  server_env:          # 可选：传给 MCP server 子进程的环境变量
+    CODEMIND_CONFIG_PATH: "/abs/path/to/config.yml"
+  call_timeout: 10
+  startup_timeout: 15
 ```
 
-如果你要完全切回迁移前的本地工具路径：
-
-```yaml
-mcp:
-  enabled: false
-```
+transport 说明：
+- `stdio`：MCP server 作为独立子进程运行，通过 stdio 通信（推荐，完全隔离）
+- `local`：MCP server 在同一进程内直接调用（用于测试/调试）
 
 ### 索引代码库
 
@@ -117,12 +124,10 @@ uvicorn app:app --reload
 ### 单独启动 MCP Server
 
 ```bash
-PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python codemind_mcp/server.py
+python codemind_mcp/server.py
 ```
 
-Claude Desktop 手工联调步骤见：
-
-- [docs/mcp-migration/06-claude-desktop-validation.md](/home/ljw/桌面/CodeMind/code-mind-agent/docs/mcp-migration/06-claude-desktop-validation.md)
+其他mcp client配置文件参考：项目根目录的 `mcp_client_config.json` 
 
 ### 工具调用基准测试
 
@@ -193,32 +198,51 @@ for chunk in response.iter_content(chunk_size=None):
 
 ```
 CodeMindAgent/
-├── agent/                    # Agent 核心模块
+├── agent/                    # Agent 核心模块 (MCP Host)
 │   ├── agent.py             # CodeMind Agent 主类
-│   ├── mcp_client.py        # MCP 客户端封装
+│   ├── mcp_host.py          # MCP 客户端封装 (Agent 作为 MCP Host)
 │   ├── security.py          # 安全检查模块
 │   ├── streaming.py         # 流式输出处理
-│   └── tools/               # Agent 工具集
+│   └── tools/               # Agent 本地工具集
+│       └── retrieve_and_summarize.py  # 检索总结工具 (仅存的本地工具)
+├── codemind_mcp/            # MCP 服务层
+│   ├── server.py            # MCP Server 入口
+│   ├── sdk.py               # MCP SDK 适配层
+│   ├── tool_impl.py         # MCP 工具的具体实现
+│   ├── security.py          # MCP 安全模块 (代理)
+│   ├── tool_paths.py        # MCP 工具路径 (代理)
+│   └── tools/               # MCP 工具定义
+│       ├── base.py          # 工具基类
 │       ├── read_file.py     # 读取文件工具
 │       ├── search_code.py   # 代码搜索工具
 │       ├── run_command.py   # 命令执行工具
-│       ├── mcp_read_file.py # MCP 代理读取工具
-│       ├── mcp_search_code.py # MCP 代理搜索工具
-│       ├── mcp_run_command.py # MCP 代理命令工具
-│       └── retrieve_and_summarize.py  # 检索总结工具
-├── codemind_mcp/            # MCP 服务层
-│   ├── server.py            # MCP Server 入口
-│   └── tools/               # MCP tools
+│       └── index_manager/   # 索引管理工具集
+│           ├── index_repo.py
+│           ├── add_by_file_path.py
+│           └── delete_by_file_path.py
 ├── prompts/                 # 提示词管理
 │   └── prompt_manager.py    # 提示词管理器
-├── rag/                     # RAG 相关模块
-│   └── context_builder.py   # 上下文构建器
 ├── scripts/                 # 脚本工具
 │   ├── index_repo.py        # 仓库索引脚本
 │   ├── add_by_file_path.py  # 增量追加索引脚本
-│   └── delete_by_file_path.py  # 删除索引脚本
+│   ├── delete_by_file_path.py  # 删除索引脚本
+│   ├── benchmark_mcp_tools.py  # MCP 工具基准测试
+│   └── benchmark_mcp_memory.py  # MCP 内存基准测试
 ├── services/                # 服务管理
 │   └── service_manager.py   # 单例服务管理器
+├── tests/                   # 测试套件
+│   └── test_mcp/            # MCP 相关测试
+│       ├── test_server.py
+│       ├── test_client.py
+│       ├── test_agent_mcp_tools.py
+│       ├── test_service_manager_mcp.py
+│       ├── test_proxy_e2e.py
+│       ├── test_app_health.py
+│       └── tools/
+│           ├── test_read_file.py
+│           ├── test_search_code.py
+│           ├── test_run_command.py
+│           └── test_index_manager.py
 ├── utils/                   # 工具模块
 │   ├── config.py            # 配置管理
 │   ├── logger.py            # 日志工具
@@ -228,6 +252,7 @@ CodeMindAgent/
 │   └── fusion.py            # 结果融合模块 (RRF)
 ├── app.py                   # FastAPI 主应用
 ├── config.yml               # 配置文件
+├── mcp_client_config.json   # MCP 客户端配置 (用于 Claude Desktop 等)
 └── requirements.txt         # 依赖列表
 ```
 
@@ -293,7 +318,6 @@ agent:
     - "git"
 
 mcp:
-  enabled: true                       # 是否启用 Agent -> MCP server 代理
   transport: "stdio"                  # stdio / local
   server_command:                     # stdio 模式下的 MCP server 启动命令
     - "conda"
@@ -305,26 +329,88 @@ mcp:
     - "/abs/path/to/code-mind-agent/codemind_mcp/server.py"
   server_env:                         # 可选：传给 MCP server 子进程的环境变量
     CODEMIND_CONFIG_PATH: "/abs/path/to/config.yml"
-  call_timeout: 10
-  startup_timeout: 15
-  fallback_to_local: true             # MCP 失败时是否回退到本地工具
+  call_timeout: 10                    # MCP 工具调用超时 (秒)
+  startup_timeout: 15                 # MCP server 启动超时 (秒)
 ```
 
 ## Agent 可用工具
 
 ### 1. RetrieveAndSummarize
-根据用户问题从代码库中检索相关文档并进行总结提炼。这是获取代码库上下文的首选工具，始终在本地执行。
+根据用户问题从代码库中检索相关文档并进行总结提炼。这是获取代码库上下文的首选工具，**始终在本地执行**（不通过 MCP）。
 
-### 2. ReadFile / MCPReadFile
-读取指定文件内容，支持按行号范围读取。默认经由 MCP server 调用，失败时可按配置降级到本地实现。
+### 2. ReadFile
+读取指定文件内容，支持按行号范围读取。**通过 MCP server 调用**。
 
-### 3. SearchCode / MCPSearchCode
-在代码库中搜索关键词或正则表达式。默认经由 MCP server 调用。
+### 3. SearchCode
+在代码库中搜索关键词或正则表达式。**通过 MCP server 调用**。
 
-### 4. RunCommand / MCPRunCommand
-执行只读 shell 命令（如 ls, cat, grep, git 等）。默认经由 MCP server 调用。
+### 4. RunCommand
+执行只读 shell 命令（如 ls, cat, grep, git 等）。**通过 MCP server 调用**。
+
+### 5. IndexRepo
+索引整个代码仓库到向量数据库。**通过 MCP server 调用**。
+
+### 6. AddByFilePath
+增量追加指定文件或目录到索引。**通过 MCP server 调用**。
+
+### 7. DeleteByFilePath
+从索引中删除指定文件或目录。**通过 MCP server 调用**。
 
 ## 核心技术
+
+### MCP 架构
+
+项目采用 **Model Context Protocol (MCP)** 架构，实现了工具的模块化和可复用性：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    FastAPI (app.py)                         │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│              ServiceManager (services/)                     │
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │  ┌──────────────────┐     ┌───────────────────────┐   │ │
+│  │  │ CodeMind Agent   │     │   Vector DB / BM25    │   │ │
+│  │  │  (MCP Host)      │     │   (本地执行)          │   │ │
+│  │  └────────┬─────────┘     └───────────────────────┘   │ │
+│  │           │                                            │ │
+│  │           ▼                                            │ │
+│  │  ┌──────────────────┐      ┌───────────────────────┐   │ │
+│  │  │   MCPClient      │      │ RetrieveAndSummarize  │   │ │
+│  │  │  (mcp_host.py)   │      │      (本地工具)       │   │ │
+│  │  └────────┬─────────┘      └───────────────────────┘   │ │
+│  └───────────┼────────────────────────────────────────────┘ │
+└──────────────┼──────────────────────────────────────────────┘
+               │
+               │ stdio / local
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│              MCP Server (codemind_mcp/)                     │
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │ Tools:                                                 │ │
+│  │  - ReadFile                                            │ │
+│  │  - SearchCode                                          │ │
+│  │  - RunCommand                                          │ │
+│  │  - IndexRepo / AddByFilePath / DeleteByFilePath        │ │
+│  └───────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**架构特点**：
+- **混合执行模式**：检索工具 (`RetrieveAndSummarize`) 在本地执行，保证低延迟；文件/搜索/命令等工具通过 MCP Server 执行，实现模块化
+- **双 Transport 支持**：
+  - `stdio`：MCP Server 作为独立子进程运行，完全隔离（推荐用于生产）
+  - `local`：MCP Server 在同一进程内直接调用（用于测试/调试）
+- **安全隔离**：所有工具的安全检查逻辑统一由 `agent/security.py` 管理，MCP Server 端代理调用
+- **可复用性**：MCP Server 可独立运行，支持被 Claude Desktop 等其他 MCP 客户端调用
+
+**MCP Server 独立使用**：
+```bash
+# 独立启动 MCP Server（用于 Claude Desktop 等客户端）
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python codemind_mcp/server.py
+```
 
 ### RAG 流程
 ```
