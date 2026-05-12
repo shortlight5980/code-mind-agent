@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 
 from utils.logger import get_logger
 from agent.security import validate_file_access, is_path_allowed, normalize_path
+from agent.tool_paths import get_allowed_dirs, get_repo_path, get_repo_paths_for_read
 
 logger = get_logger("agent.tools.read_file")
 
@@ -44,31 +45,7 @@ def get_repo_paths() -> Tuple[str, List[str]]:
     Returns:
         (repo_path, search_dirs) - 仓库路径和搜索目录列表
     """
-    from utils.config import Config
-
-    repo_path = Config.get("repo.path", ".")
-    allowed_dirs = Config.get("agent.allowed_dirs", ["."])
-
-    # 如果 repo_path 是绝对路径，直接使用；否则相对于项目根目录
-    repo_path = normalize_path(repo_path)
-
-    # 构建搜索目录列表：优先使用 repo_path，然后是 allowed_dirs
-    search_dirs = []
-
-    # 添加 repo_path
-    if os.path.exists(repo_path) and os.path.isdir(repo_path):
-        search_dirs.append(repo_path)
-
-    # 添加 allowed_dirs（如果和 repo_path 不同）
-    for allowed_dir in allowed_dirs:
-        abs_allowed_dir = normalize_path(allowed_dir)
-        if abs_allowed_dir not in search_dirs and os.path.exists(abs_allowed_dir) and os.path.isdir(abs_allowed_dir):
-            search_dirs.append(abs_allowed_dir)
-
-    if not search_dirs:
-        search_dirs = [normalize_path(".")]
-
-    return repo_path, search_dirs
+    return get_repo_paths_for_read()
 
 
 def resolve_file_path(file_path: str, repo_path: str) -> Optional[str]:
@@ -112,10 +89,8 @@ def search_file_by_name(file_name: str, search_dirs: List[str]) -> List[str]:
     Returns:
         匹配的文件路径列表（相对路径或显示路径）
     """
-    from utils.config import Config
-    allowed_dirs = Config.get("agent.allowed_dirs", ["."])
-    repo_path = Config.get("repo.path", ".")
-    repo_path = normalize_path(repo_path)
+    allowed_dirs = get_allowed_dirs(include_repo_path=False)
+    repo_path = get_repo_path()
 
     matches = []
 
@@ -229,6 +204,7 @@ def ReadFile(file_path: str, start_line: Optional[int] = None, end_line: Optiona
     """
     读取指定文件的内容，支持按行号范围读取。
     【重要】：文件路径相对于被索引仓库的根目录！
+    【重要】：当需要读文档时，按行分批读，防止文件过大！
 
     Args:
         file_path: 文件路径（相对于被索引仓库根目录）
@@ -238,12 +214,12 @@ def ReadFile(file_path: str, start_line: Optional[int] = None, end_line: Optiona
     Returns:
         文件内容字符串
     """
-    from utils.config import Config
-
     logger.info(f"[ToolsCall] ReadFile called: file_path={file_path}, start_line={start_line}, end_line={end_line}")
 
     # 加载配置
-    allowed_dirs = Config.get("agent.allowed_dirs", ["."])
+    from utils.config import Config
+
+    allowed_dirs = get_allowed_dirs(include_repo_path=False)
     blocked_patterns = Config.get("agent.blocked_files", None)
     repo_path, search_dirs = get_repo_paths()
 
@@ -291,5 +267,4 @@ def ReadFile(file_path: str, start_line: Optional[int] = None, end_line: Optiona
     except Exception as e:
         logger.error(f"Error reading file {file_path}: {e}")
         return f"[错误] 读取文件失败: {str(e)}"
-
 

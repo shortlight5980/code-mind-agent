@@ -9,7 +9,8 @@ from typing import List
 from langchain_core.tools import tool
 
 from utils.logger import get_logger
-from agent.security import is_path_allowed, normalize_path
+from agent.security import is_path_allowed
+from agent.tool_paths import get_allowed_dirs, get_repo_path, resolve_repo_relative_path
 
 logger = get_logger("agent.tools.search_code")
 
@@ -56,14 +57,15 @@ def SearchCode(query: str, is_regex: bool = False, search_dir: str = ".") -> str
     logger.info(f"SearchCode called: query={query}, is_regex={is_regex}, search_dir={search_dir}")
 
     # 加载配置
-    allowed_dirs = Config.get("agent.allowed_dirs", ["."])
+    allowed_dirs = get_allowed_dirs()
     max_results = Config.get("agent.max_search_results", 50)
+    repo_path = get_repo_path()
 
     # 安全验证：搜索目录必须在白名单内
-    if not is_path_allowed(search_dir, allowed_dirs):
-        return f"[错误] 搜索目录不在允许的白名单内: {search_dir}"
+    abs_search_dir = resolve_repo_relative_path(search_dir, repo_path)
 
-    abs_search_dir = normalize_path(search_dir)
+    if not is_path_allowed(abs_search_dir, allowed_dirs):
+        return f"[错误] 搜索目录不在允许的白名单内: {search_dir}"
 
     if not os.path.exists(abs_search_dir):
         return f"[错误] 搜索目录不存在: {search_dir}"
@@ -147,5 +149,3 @@ def SearchCode(query: str, is_regex: bool = False, search_dir: str = ".") -> str
     except Exception as e:
         logger.error(f"Error in SearchCode: {e}")
         return f"[错误] 搜索失败: {str(e)}"
-
-

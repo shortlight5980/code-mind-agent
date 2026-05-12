@@ -30,7 +30,7 @@ embeddings:
   model: "text-embedding-v1"
 
 llm:
-  model: "qwen-max"
+  model: "qwen-max-0919"
   temperature: 0.1
 
 summarizer:
@@ -45,7 +45,7 @@ splitting:
 
 agent:
   enabled: true
-  model: "qwen-max"
+  model: "qwen-max-0919"
   temperature: 0.1
   allowed_dirs:
     - "."

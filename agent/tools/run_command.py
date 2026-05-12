@@ -12,6 +12,7 @@ from langchain_core.tools import tool
 
 from utils.logger import get_logger
 from agent.security import is_command_allowed
+from agent.tool_paths import get_repo_path, resolve_repo_relative_path
 
 logger = get_logger("agent.tools.run_command")
 
@@ -98,7 +99,7 @@ def _execute_python_command(cmd_name: str, args: list) -> str:
     """使用 Python 实现的命令"""
     from utils.config import Config
 
-    repo_path = Config.get("repo.path", ".")
+    repo_path = get_repo_path()
 
     try:
         if cmd_name == "find":
@@ -122,8 +123,7 @@ def _execute_python_command(cmd_name: str, args: list) -> str:
                         break
 
             # 确保起始路径是绝对路径
-            if not os.path.isabs(start_path):
-                start_path = os.path.join(repo_path, start_path)
+            start_path = resolve_repo_relative_path(start_path, repo_path)
 
             # 递归查找
             import fnmatch
@@ -162,8 +162,7 @@ def _execute_python_command(cmd_name: str, args: list) -> str:
 
             if args:
                 file_path = args[0]
-                if not os.path.isabs(file_path):
-                    file_path = os.path.join(repo_path, file_path)
+                file_path = resolve_repo_relative_path(file_path, repo_path)
 
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     lines = []
@@ -194,8 +193,7 @@ def _execute_python_command(cmd_name: str, args: list) -> str:
 
             if args:
                 file_path = args[0]
-                if not os.path.isabs(file_path):
-                    file_path = os.path.join(repo_path, file_path)
+                file_path = resolve_repo_relative_path(file_path, repo_path)
 
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.read().splitlines()
@@ -229,8 +227,7 @@ def _execute_python_command(cmd_name: str, args: list) -> str:
                 show_lines = show_words = show_chars = True
 
             if file_path:
-                if not os.path.isabs(file_path):
-                    file_path = os.path.join(repo_path, file_path)
+                file_path = resolve_repo_relative_path(file_path, repo_path)
 
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
@@ -282,7 +279,7 @@ def RunCommand(command: str) -> str:
         "ls", "cat", "grep", "git", "find", "head", "tail", "wc"
     ])
     timeout = Config.get("agent.command_timeout", 5)
-    repo_path = Config.get("repo.path", ".")
+    repo_path = get_repo_path()
 
     # Windows 下也允许使用 Windows 原生命令
     if IS_WINDOWS:
@@ -305,7 +302,7 @@ def RunCommand(command: str) -> str:
 
             # 使用原生命令，但需要设置 shell=True 才能正确执行 dir 等内置命令
             args = cmd_data
-            work_dir = os.path.abspath(repo_path)
+            work_dir = repo_path
 
             logger.info(f"Executing Windows command: {args} in {work_dir}")
 
@@ -326,7 +323,7 @@ def RunCommand(command: str) -> str:
         else:
             # Unix 系统正常处理
             args = shlex.split(command)
-            work_dir = os.path.abspath(repo_path)
+            work_dir = repo_path
 
             result = subprocess.run(
                 args,
@@ -370,5 +367,4 @@ def RunCommand(command: str) -> str:
     except Exception as e:
         logger.error(f"Error executing command: {e}")
         return f"[错误] 命令执行失败: {str(e)}"
-
 

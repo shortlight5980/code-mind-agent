@@ -1,0 +1,80 @@
+import subprocess
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
+from agent.tools.read_file import ReadFile
+from agent.tools.run_command import RunCommand
+from agent.tools.search_code import SearchCode
+
+
+class ToolRepoPathTests(unittest.TestCase):
+    def test_read_file_uses_configured_repo_path(self):
+        with TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "external-repo"
+            repo_root.mkdir()
+            target = repo_root / "src" / "main.py"
+            target.parent.mkdir()
+            target.write_text("print('repo path works')\n", encoding="utf-8")
+
+            values = {
+                "repo.path": str(repo_root),
+                "agent.allowed_dirs": ["."],
+                "agent.blocked_files": [],
+            }
+
+            with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
+                result = ReadFile.invoke({"file_path": "src/main.py"})
+
+        self.assertIn("repo path works", result)
+        self.assertIn(str(target), result)
+
+    def test_search_code_defaults_to_repo_path_instead_of_project_root(self):
+        with TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "external-repo"
+            repo_root.mkdir()
+            (repo_root / "app.py").write_text("needle = 'in repo'\n", encoding="utf-8")
+
+            values = {
+                "repo.path": str(repo_root),
+                "agent.allowed_dirs": ["."],
+                "agent.max_search_results": 50,
+            }
+
+            with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
+                result = SearchCode.invoke({"query": "needle"})
+
+        self.assertIn("app.py", result)
+        self.assertIn("needle = 'in repo'", result)
+
+    def test_run_command_executes_in_configured_repo_path(self):
+        with TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "external-repo"
+            repo_root.mkdir()
+
+            values = {
+                "repo.path": str(repo_root),
+                "agent.allowed_commands": ["git"],
+                "agent.command_timeout": 5,
+            }
+
+            completed = subprocess.CompletedProcess(
+                args=["git", "rev-parse", "--show-toplevel"],
+                returncode=0,
+                stdout=str(repo_root) + "\n",
+                stderr="",
+            )
+
+            with (
+                patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)),
+                patch("agent.tools.run_command.subprocess.run", return_value=completed) as mock_run,
+            ):
+                result = RunCommand.invoke({"command": "git rev-parse --show-toplevel"})
+
+        self.assertIn(str(repo_root), result)
+        self.assertEqual(str(repo_root), mock_run.call_args.kwargs["cwd"])
+
+
+if __name__ == "__main__":
+    unittest.main()
