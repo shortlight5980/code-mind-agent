@@ -5,7 +5,7 @@ Agent 核心模块
 负责创建和运行 CodeMind Agent，集成工具调用。
 支持流式输出和非流式输出两种模式。
 """
-from typing import List, Any, Dict, Optional, AsyncGenerator
+from typing import Any, List, Dict, Optional, AsyncGenerator
 from langchain.agents import create_agent
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.tools import Tool
@@ -15,7 +15,7 @@ from utils.logger import get_logger
 from utils.config import Config
 from prompts.prompt_manager import PromptManager, PromptScenario, PromptLanguage
 from .tools import get_agent_toolset
-from .mcp_host import build_langchain_mcp_tools
+from .mcp_host import MCPClient, build_langchain_mcp_tools
 
 from langchain_core.messages import (
     message_to_dict,
@@ -45,7 +45,7 @@ def _process_history(history: list[dict]) -> list:
         return []
 
 
-def get_tools(mcp_client: Any | None = None) -> List[Tool]:
+def get_tools(mcp_client: MCPClient | None = None) -> List[Tool]:
     """
     获取所有可用的 Agent 工具列表。
 
@@ -79,14 +79,15 @@ class CodeMindAgent:
     CodeMind Agent 封装类
 
     提供统一的接口来执行 Agent 任务，支持流式输出和非流式输出。
-    Agent 会根据问题自主决定何时使用工具（包括检索和总结）。
+    Agent 本身是 MCP host，会根据问题自主决定何时使用工具
+    （包括检索和总结，以及通过 MCP client 调用 MCP server 工具）。
     """
 
     def __init__(
             self,
             model: Optional[str] = None,
             temperature: Optional[float] = None,
-            mcp_client: Any | None = None,
+            mcp_client: MCPClient | None = None,
     ):
         """
         初始化 CodeMind Agent。

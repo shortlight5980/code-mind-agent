@@ -19,7 +19,7 @@ class ServiceManagerMCPTests(unittest.TestCase):
             patch.object(ServiceManager, "_init_summarizer_llm"),
             patch.object(ServiceManager, "_init_query_rewriting_llm"),
             patch.object(ServiceManager, "_init_agent"),
-            patch("services.service_manager.MCPHostClient") as mcp_client_cls,
+            patch("services.service_manager.MCPClient") as mcp_client_cls,
         ):
             mcp_client = mcp_client_cls.return_value
             manager.initialize()
@@ -42,7 +42,7 @@ class ServiceManagerMCPTests(unittest.TestCase):
             patch.object(ServiceManager, "_init_summarizer_llm"),
             patch.object(ServiceManager, "_init_query_rewriting_llm"),
             patch.object(ServiceManager, "_init_agent"),
-            patch("services.service_manager.MCPHostClient") as mcp_client_cls,
+            patch("services.service_manager.MCPClient") as mcp_client_cls,
         ):
             mcp_client_cls.return_value.initialize.side_effect = MCPHostError("boom")
             with self.assertRaises(MCPHostError):

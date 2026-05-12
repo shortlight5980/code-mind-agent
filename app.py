@@ -104,6 +104,7 @@ async def health():
             "status": "not_initialized",
             "vectordb_initialized": False,
             "agent_initialized": False,
+            "mcp_host_initialized": False,
             "mcp_client_initialized": False,
             "mcp_client_healthy": False,
         }
@@ -112,6 +113,7 @@ async def health():
         "status": "ok",
         "vectordb_initialized": service_manager.vectordb is not None,
         "agent_initialized": service_manager.agent is not None,
+        "mcp_host_initialized": service_manager.agent is not None,
         "mcp_client_initialized": bool(mcp_client and mcp_client.is_initialized),
         "mcp_client_healthy": bool(mcp_client and mcp_client.health_check()),
     }

@@ -1,5 +1,8 @@
 """
-Host-side MCP integration for dynamically discovering and calling MCP tools.
+MCP host-side integration.
+
+`CodeMindAgent` is the MCP host. This module provides the MCP client used by
+that host to discover and call MCP server tools.
 """
 
 from __future__ import annotations
@@ -48,8 +51,8 @@ class _WorkerRequest:
     future: Future
 
 
-class MCPHostClient:
-    """Reusable host-side client for listing and calling MCP server tools."""
+class MCPClient:
+    """Reusable MCP client used by the agent host to talk to an MCP server."""
 
     def __init__(
         self,
@@ -85,7 +88,7 @@ class MCPHostClient:
 
         if self.transport.lower() == "local":
             self._initialized = True
-            logger.info("MCP host client initialized with local transport")
+            logger.info("MCP client initialized with local transport")
             return
 
         self._loop_thread = _AsyncioLoopThread()
@@ -124,7 +127,7 @@ class MCPHostClient:
                 read_timeout_seconds=dt.timedelta(seconds=self.call_timeout),
             ) as session:
                 await asyncio.wait_for(session.initialize(), timeout=self.startup_timeout)
-                logger.info("MCP host client initialized")
+                logger.info("MCP client initialized")
                 startup_future.set_result(True)
 
                 while True:
@@ -204,7 +207,7 @@ class MCPHostClient:
         try:
             return bool(self.list_tools())
         except Exception as exc:
-            logger.warning(f"MCP host health check failed: {exc}")
+            logger.warning(f"MCP client health check failed: {exc}")
             return False
 
     @property
@@ -213,11 +216,11 @@ class MCPHostClient:
 
     def _ensure_available(self) -> None:
         if not self._initialized:
-            raise MCPHostError("MCP host client is not initialized")
+            raise MCPHostError("MCP client is not initialized")
 
     def _submit_worker_request(self, action: str, payload: Any) -> Any:
         if self._loop_thread is None or self._request_queue is None:
-            raise MCPHostError("MCP host worker is not running")
+            raise MCPHostError("MCP client worker is not running")
         result_future: Future = Future()
         request = _WorkerRequest(action=action, payload=payload, future=result_future)
         enqueue = self._request_queue.put(request)
@@ -259,11 +262,15 @@ def _json_schema_to_python_type(schema: dict[str, Any]) -> Any:
     return str
 
 
-def build_langchain_mcp_tools(host_client: MCPHostClient) -> list[StructuredTool]:
+MCPHostClient = MCPClient
+"""Backward-compatible alias for older host-side naming."""
+
+
+def build_langchain_mcp_tools(mcp_client: MCPClient) -> list[StructuredTool]:
     """Fetch MCP tools and adapt them into LangChain tools."""
 
     tools = []
-    for tool_def in host_client.list_tools():
+    for tool_def in mcp_client.list_tools():
         schema = tool_def.get("inputSchema", {})
         properties = schema.get("properties", {})
         required = set(schema.get("required", []))
@@ -277,7 +284,7 @@ def build_langchain_mcp_tools(host_client: MCPHostClient) -> list[StructuredTool
 
         def _invoke_factory(tool_name: str):
             def _invoke(**kwargs):
-                return host_client.call_tool(tool_name, kwargs)
+                return mcp_client.call_tool(tool_name, kwargs)
 
             return _invoke
 

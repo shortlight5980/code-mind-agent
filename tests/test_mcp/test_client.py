@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from agent.mcp_host import MCPHostClient, build_langchain_mcp_tools
+from agent.mcp_host import MCPClient, build_langchain_mcp_tools
 
 
 class MCPClientTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class MCPClientTests(unittest.TestCase):
             }
 
             with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
-                client = MCPHostClient()
+                client = MCPClient()
                 client.initialize()
                 try:
                     tools = client.list_tools()
@@ -44,7 +44,7 @@ class MCPClientTests(unittest.TestCase):
         }
 
         with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
-            client = MCPHostClient()
+            client = MCPClient()
             client.initialize()
             try:
                 self.assertTrue(client.health_check())

@@ -15,7 +15,7 @@ from utils.bm25_index import BM25Index
 from utils.query_rewriting import create_query_rewriter
 from utils.summarizer import create_summarizer
 from agent.agent import CodeMindAgent
-from agent.mcp_host import MCPHostClient
+from agent.mcp_host import MCPClient
 from agent.tools import initialize_tool_service_manager
 
 logger = get_logger("service_manager")
@@ -73,7 +73,7 @@ class ServiceManager:
         # 初始化查询改写LLM
         self._init_query_rewriting_llm()
 
-        # 初始化MCP客户端
+        # 初始化 MCP client（由 Agent 这个 MCP host 使用）
         self._init_mcp_client()
 
         # 初始化Agent
@@ -181,9 +181,9 @@ class ServiceManager:
             raise
 
     def _init_mcp_client(self) -> None:
-        """初始化 MCP 客户端。"""
+        """初始化供 Agent(host) 使用的 MCP client。"""
         logger.info("初始化 MCP client...")
-        client = MCPHostClient()
+        client = MCPClient()
         client.initialize()
         self._services["mcp_client"] = client
         logger.info("MCP client 初始化完成")
@@ -249,12 +249,12 @@ class ServiceManager:
 
     @property
     def agent(self) -> Optional[CodeMindAgent]:
-        """Agent服务"""
+        """Agent 服务。Agent 本身就是 MCP host。"""
         return self._services.get("agent")
 
     @property
-    def mcp_client(self) -> Optional[MCPHostClient]:
-        """MCP客户端服务"""
+    def mcp_client(self) -> Optional[MCPClient]:
+        """供 Agent(host) 调用 MCP server 的 MCP client。"""
         return self._services.get("mcp_client")
 
 

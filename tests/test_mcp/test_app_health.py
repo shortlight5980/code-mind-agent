@@ -21,6 +21,7 @@ class AppHealthTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["vectordb_initialized"])
         self.assertTrue(result["agent_initialized"])
+        self.assertTrue(result["mcp_host_initialized"])
         self.assertTrue(result["mcp_client_initialized"])
         self.assertTrue(result["mcp_client_healthy"])
 

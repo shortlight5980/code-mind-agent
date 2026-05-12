@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from agent.mcp_host import MCPHostClient, build_langchain_mcp_tools
+from agent.mcp_host import MCPClient, build_langchain_mcp_tools
 
 
 class MCPProxyEndToEndTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class MCPProxyEndToEndTests(unittest.TestCase):
             }
 
             with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
-                client = MCPHostClient()
+                client = MCPClient()
                 client.initialize()
                 try:
                     tools = {tool.name: tool for tool in build_langchain_mcp_tools(client)}
