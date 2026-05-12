@@ -84,6 +84,7 @@
 - [x] 更新了 `utils/config.py`
   - [x] 增加 `mcp` 配置段
   - [x] 支持 `enabled`、`transport`、`server_command`、`call_timeout`、`fallback_to_local`
+  - [x] 支持 `server_env`
 - [x] 创建了 `tests/test_mcp/test_client.py`
   - [x] 测试 MCP client 启动
   - [x] 测试 list_tools
@@ -131,14 +132,14 @@
   - [x] Agent → MCPRunCommand → MCP server
   - [x] 降级场景测试
 - [ ] 性能基准测试（对比迁移前后）
-  - [ ] 工具调用延迟对比
-  - [ ] 内存占用对比
+  - [x] 工具调用延迟对比
+  - [x] 内存占用对比
 - [ ] Claude Desktop 端到端联调
 - [x] MCP 服务器真实 stdio 启动验证
 - [ ] 核心检索性能无明显下降
 - [ ] 编写了部署文档
 - [ ] 编写了用户使用指南
-- [ ] 编写了开发者维护文档
+- [x] 编写了开发者维护文档
 - [x] 更新了 README.md
 - [ ] 更新了架构图
 - [ ] 最终代码审查通过
@@ -148,9 +149,8 @@
 
 ## 发布前检查清单
 
-- [ ] 已验证降级机制完整可用
 - [x] 已验证降级机制完整可用
-- [ ] 已通过配置开关验证能在 MCP 和本地工具之间切换
+- [x] 已通过配置开关验证能在 MCP 和本地工具之间切换
 - [ ] docker-compose.yml 已更新（如适用）
 - [ ] 所有文档已同步更新
 - [ ] 已通知相关团队

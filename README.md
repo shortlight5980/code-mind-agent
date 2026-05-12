@@ -76,6 +76,13 @@ mcp:
   fallback_to_local: true
 ```
 
+如果你要完全切回迁移前的本地工具路径：
+
+```yaml
+mcp:
+  enabled: false
+```
+
 ### 索引代码库
 
 ```bash
@@ -112,6 +119,32 @@ uvicorn app:app --reload
 ```bash
 PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python mcp/server.py
 ```
+
+Claude Desktop 手工联调步骤见：
+
+- [docs/mcp-migration/06-claude-desktop-validation.md](/home/ljw/桌面/CodeMind/code-mind-agent/docs/mcp-migration/06-claude-desktop-validation.md)
+
+### 工具调用基准测试
+
+对比本地工具、MCP `local` transport 和 MCP `stdio` transport：
+
+```bash
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python scripts/benchmark_mcp_tools.py --iterations 5
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python scripts/benchmark_mcp_tools.py --iterations 5 --stdio
+```
+
+这个脚本只测工具调用延迟，不包含 LLM 或检索链路。
+
+### 工具内存基准测试
+
+对比本地工具、MCP `local` transport 和 MCP `stdio` transport 的 RSS 增量：
+
+```bash
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python scripts/benchmark_mcp_memory.py
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 conda run --no-capture-output -n AIP312 python scripts/benchmark_mcp_memory.py --stdio
+```
+
+这个脚本统计的是当前 Python 进程的 RSS 峰值增量。对 `stdio` 模式，它主要反映客户端进程开销，不包含 MCP server 子进程的完整内存画像。
 
 ### API 使用
 
@@ -270,6 +303,8 @@ mcp:
     - "AIP312"
     - "python"
     - "/abs/path/to/code-mind-agent/mcp/server.py"
+  server_env:                         # 可选：传给 MCP server 子进程的环境变量
+    CODEMIND_CONFIG_PATH: "/abs/path/to/config.yml"
   call_timeout: 10
   startup_timeout: 15
   fallback_to_local: true             # MCP 失败时是否回退到本地工具

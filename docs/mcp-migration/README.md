@@ -14,6 +14,7 @@
 | [03-phased-migration.md](./03-phased-migration.md) | 分阶段迁移计划、验收标准、回滚方案 |
 | [04-risk-assessment.md](./04-risk-assessment.md) | 风险评估、回滚策略、监控要点 |
 | [05-implementation-checklist.md](./05-implementation-checklist.md) | 实施检查清单 |
+| [06-claude-desktop-validation.md](./06-claude-desktop-validation.md) | Claude Desktop 手工联调步骤与验收清单 |
 
 ## 快速开始
 

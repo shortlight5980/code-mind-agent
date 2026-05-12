@@ -18,6 +18,7 @@ class Config:
 
         # Load environment variables
         load_dotenv()
+        config_path = os.getenv("CODEMIND_CONFIG_PATH", config_path)
 
         # Load YAML config
         if os.path.exists(config_path):

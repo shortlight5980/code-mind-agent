@@ -23,6 +23,13 @@ class AgentMCPToolTests(unittest.TestCase):
         names = [tool.name for tool in tools]
         self.assertEqual(names[:3], ["MCPReadFile", "MCPSearchCode", "MCPRunCommand"])
 
+    def test_get_agent_toolset_switches_to_local_tools_when_mcp_disabled(self):
+        with patch("utils.config.Config.get", side_effect=lambda key, default=None: False if key == "mcp.enabled" else default):
+            tools = get_agent_toolset()
+
+        names = [tool.name for tool in tools]
+        self.assertEqual(names[:3], ["ReadFile", "SearchCode", "RunCommand"])
+
     def test_mcp_read_file_calls_client(self):
         client = Mock()
         client.call_tool.return_value = "remote-result"

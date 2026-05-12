@@ -75,6 +75,7 @@
 | MCP 代理工具在失败时按配置回退到原本地工具 | 保持迁移风险可控，不阻断现有 Agent 使用链路 |
 | MCP server 日志改走 stderr | 避免污染 stdio JSON-RPC 消息流 |
 | MCP server `call_tool` 返回 `CallToolResult(TextContent[])` | 适配真实 MCP SDK 的结果模型，避免客户端解析失败 |
+| MCP client 支持 `server_env` | 允许为 MCP server 子进程显式注入配置路径等环境，便于 benchmark 和部署隔离 |
 
 ## Issues Encountered
 | Issue | Resolution |
@@ -82,6 +83,7 @@
 | MCP server 日志写到 stdout，污染 JSON-RPC | logger 增加 `CODEMIND_LOG_STDERR` 开关，并在 `mcp/server.py` 启动前启用 |
 | MCP server `call_tool` 返回裸字符串，不符合 MCP SDK `CallToolResult` 结构 | 在 server 侧包装为 `TextContent` 列表 |
 | MCP client 关闭时跨 task 退出 anyio cancel scope | 改为单后台任务持有 stdio session，并通过请求队列串行执行操作 |
+| 顶层脚本场景下本地 `mcp/` 目录会遮蔽第三方 MCP SDK | `agent.mcp_client` 的外部 SDK 导入逻辑显式清理 `sys.modules` 并过滤本地路径 |
 
 ## Resources
 - 方案二原始设计：用户提供的详细方案

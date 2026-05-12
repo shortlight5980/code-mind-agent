@@ -55,12 +55,19 @@ class _WorkerRequest:
 
 def _import_external_mcp_client():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local_mcp_root = os.path.join(project_root, "mcp")
     original_sys_path = list(sys.path)
+    removed_modules = {
+        name: module
+        for name, module in list(sys.modules.items())
+        if name == "mcp" or name.startswith("mcp.")
+    }
     try:
-        sys.modules.pop("mcp", None)
+        for name in list(removed_modules):
+            sys.modules.pop(name, None)
         sys.path = [
             path for path in sys.path
-            if os.path.abspath(path or os.getcwd()) != project_root
+            if os.path.abspath(path or os.getcwd()) not in {project_root, local_mcp_root}
         ]
         client_root = importlib.import_module("mcp")
         client_stdio = importlib.import_module("mcp.client.stdio")
@@ -73,6 +80,8 @@ def _import_external_mcp_client():
         )
     finally:
         sys.path = original_sys_path
+        for name, module in removed_modules.items():
+            sys.modules[name] = module
 
 
 class MCPClient:
@@ -91,6 +100,7 @@ class MCPClient:
         self.enabled = Config.get("mcp.enabled", True) if enabled is None else enabled
         self.transport = Config.get("mcp.transport", "stdio") if transport is None else transport
         self.server_command = server_command or Config.get("mcp.server_command", self._default_server_command())
+        self.server_env = Config.get("mcp.server_env", {})
         self.call_timeout = float(
             Config.get("mcp.call_timeout", 10) if call_timeout is None else call_timeout
         )
@@ -145,7 +155,13 @@ class MCPClient:
             startup_future.set_exception(MCPClientError(f"Failed to import external MCP client SDK: {exc}"))
             return
 
-        params = server_parameters(command=self.server_command[0], args=self.server_command[1:])
+        params_kwargs = {
+            "command": self.server_command[0],
+            "args": self.server_command[1:],
+        }
+        if self.server_env:
+            params_kwargs["env"] = {str(k): str(v) for k, v in self.server_env.items()}
+        params = server_parameters(**params_kwargs)
         self._request_queue = asyncio.Queue()
 
         async with stdio_client(params) as (read_stream, write_stream):
