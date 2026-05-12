@@ -16,7 +16,11 @@
       "Bash(python -m py_compile agent/__init__.py)",
       "Bash(python -m py_compile agent/streaming.py)",
       "Bash(python -m py_compile rag/context_builder.py)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(ls -la /home/ljw/桌面/CodeMind/)",
+      "Read(//home/ljw/桌面/CodeMind/**)",
+      "Bash(ls -la /home/ljw/.claude/skills/planning-with-files/templates/)",
+      "Read(//home/ljw/.agents/skills/planning-with-files/templates/**)"
     ]
   }
 }
