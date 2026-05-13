@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -7,6 +8,9 @@ from codemind_mcp.tools.output_truncation import MAX_TOOL_OUTPUT_CHARS
 
 
 class MCPServerTests(unittest.TestCase):
+    def test_server_imports_mcp_sdk_directly(self):
+        self.assertNotIn("codemind_mcp.sdk", sys.modules)
+
     def test_get_tools_contains_expected_names(self):
         names = {tool.name for tool in get_tools()}
         self.assertEqual(

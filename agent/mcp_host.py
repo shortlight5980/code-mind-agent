@@ -13,10 +13,10 @@ import os
 from concurrent.futures import Future
 from dataclasses import dataclass
 from threading import Thread
-from typing import Any
+from typing import Any, List
 
 from langchain_core.tools import StructuredTool
-from pydantic import create_model
+from pydantic import create_model, Field
 
 from utils.config import Config
 from utils.logger import get_logger
@@ -60,12 +60,12 @@ class MCPClient:
     """可重用的 MCP 客户端，供代理主机与 MCP 服务器通信使用。"""
 
     def __init__(
-        self,
-        *,
-        transport: str | None = None,
-        server_command: list[str] | None = None,
-        call_timeout: float | None = None,
-        startup_timeout: float | None = None,
+            self,
+            *,
+            transport: str | None = None,
+            server_command: list[str] | None = None,
+            call_timeout: float | None = None,
+            startup_timeout: float | None = None,
     ) -> None:
         # 从配置中获取传输方式，默认为 stdio
         self.transport = Config.get("mcp.transport", "stdio") if transport is None else transport
@@ -148,14 +148,14 @@ class MCPClient:
         # 从配置好的 server_command 中提取命令和参数。
         # server_command[0] 是可执行文件（如 conda），其余部分是参数。
         params_kwargs = {"command": self.server_command[0], "args": self.server_command[1:]}
-        
+
         # 如果配置了环境变量，将其转换为字符串键值对并加入参数中
         if self.server_env:
             params_kwargs["env"] = {str(k): str(v) for k, v in self.server_env.items()}
-        
+
         # 创建 StdioServerParameters 对象，用于后续建立 stdio 连接
         params = StdioServerParameters(**params_kwargs)
-        
+
         # 初始化异步请求队列，用于在主线程和工作协程之间传递任务
         self._request_queue = asyncio.Queue()
 
@@ -164,14 +164,14 @@ class MCPClient:
         async with stdio_client(params) as (read_stream, write_stream):
             # 创建 MCP 客户端会话，设置读取超时时间
             async with ClientSession(
-                read_stream,
-                write_stream,
-                read_timeout_seconds=dt.timedelta(seconds=self.call_timeout),
+                    read_stream,
+                    write_stream,
+                    read_timeout_seconds=dt.timedelta(seconds=self.call_timeout),
             ) as session:
                 # 步骤 4: 初始化会话
                 # 等待服务器完成初始化握手，设置总超时时间以防挂起
                 await asyncio.wait_for(session.initialize(), timeout=self.startup_timeout)
-                
+
                 # 记录日志并通知主线程初始化成功
                 logger.info("MCP client initialized")
                 startup_future.set_result(True)
@@ -181,14 +181,14 @@ class MCPClient:
                 while True:
                     # 阻塞等待下一个请求对象
                     request = await self._request_queue.get()
-                    
+
                     # 检查是否为停止信号
                     if request.action == "stop":
                         # 设置停止未来对象的结果为 True，表示正常退出
                         request.future.set_result(True)
                         # 退出循环，结束协程
                         return
-                    
+
                     # 尝试处理具体的业务请求
                     try:
                         if request.action == "list_tools":
@@ -198,7 +198,7 @@ class MCPClient:
                             # 安全地提取分页游标参数（如果存在）
                             params = getattr(req, "params", None)
                             cursor = getattr(params, "cursor", None) if params is not None else None
-                            
+
                             # 调用会话的 list_tools 方法，并设置超时保护
                             result = await asyncio.wait_for(
                                 session.list_tools(cursor=cursor, params=params),
@@ -206,12 +206,12 @@ class MCPClient:
                             )
                             # 将返回的工具对象转换为字典格式，并设置到未来对象中返回给调用者
                             request.future.set_result([self._tool_to_dict(tool) for tool in result.tools])
-                        
+
                         elif request.action == "call_tool":
                             # 处理“调用工具”请求
                             # 从 payload 中解包工具名称和参数字典
                             name, arguments = request.payload
-                            
+
                             # 调用会话的 call_tool 方法执行远程工具
                             # 注意：此处直接传入 read_timeout_seconds 以控制单次调用的最大等待时间
                             result = await session.call_tool(
@@ -221,12 +221,12 @@ class MCPClient:
                             )
                             # 将响应内容展平为字符串，并设置到未来对象中返回给调用者
                             request.future.set_result(self._flatten_content(result.content))
-                        
+
                         else:
                             # 处理未知动作类型
                             # 设置异常以通知调用者发生了不支持的操作
                             request.future.set_exception(MCPHostError(f"Unknown worker action: {request.action}"))
-                    
+
                     except Exception as exc:
                         # 捕获所有其他异常（如网络错误、超时、序列化错误等）
                         # 将异常设置到未来对象中，以便主线程能捕获并处理
@@ -307,6 +307,7 @@ class MCPClient:
         result_future: Future = Future()
         request = _WorkerRequest(action=action, payload=payload, future=result_future)
         enqueue = self._request_queue.put(request)
+        # 跨线程调用，并阻塞等待入队完成
         asyncio.run_coroutine_threadsafe(enqueue, self._loop_thread._loop).result(timeout=self.call_timeout)
         return result_future.result(timeout=self.call_timeout + 1)
 
@@ -342,8 +343,26 @@ def _json_schema_to_python_type(schema: dict[str, Any]) -> Any:
     if schema_type == "boolean":
         return bool
     if schema_type == "array":
+        items_schema = schema.get("items", {})
+        if items_schema:
+            item_type = _json_schema_to_python_type(items_schema)
+            return List[item_type]
         return list
     if schema_type == "object":
+        properties = schema.get("properties", {})
+        if properties:
+            nested_fields = {}
+            required = set(schema.get("required", []))
+            for prop_name, prop_schema in properties.items():
+                prop_type = _json_schema_to_python_type(prop_schema)
+                default = ... if prop_name in required else prop_schema.get("default", None)
+                nested_fields[prop_name] = (prop_type, default)
+
+            nested_model = create_model(
+                f"NestedObject_{id(schema)}",
+                **nested_fields
+            )
+            return nested_model
         return dict
     return str
 
@@ -364,7 +383,20 @@ def build_langchain_mcp_tools(mcp_client: MCPClient) -> list[StructuredTool]:
         for field_name, field_schema in properties.items():
             python_type = _json_schema_to_python_type(field_schema)
             default = ... if field_name in required else field_schema.get("default", None)
-            fields[field_name] = (python_type, default)
+
+            field_description = field_schema.get("description", "")
+            if default is not ... and default is not None:
+                fields[field_name] = (
+                    python_type,
+                    Field(default=default, description=field_description)
+                )
+            elif field_description:
+                fields[field_name] = (
+                    python_type,
+                    Field(..., description=field_description)
+                )
+            else:
+                fields[field_name] = (python_type, default)
 
         args_model = create_model(f"MCPToolInput_{tool_def['name']}", **fields)
 
@@ -384,3 +416,69 @@ def build_langchain_mcp_tools(mcp_client: MCPClient) -> list[StructuredTool]:
         )
 
     return tools
+
+
+async def async_build_langchain_mcp_tools(mcp_client: MCPClient) -> list[StructuredTool]:
+    """异步版本：获取 MCP 工具并将其适配为 LangChain 工具，不会阻塞事件循环。
+
+    适用于 FastAPI 异步路由等场景，避免阻塞主事件循环。
+    """
+    loop = asyncio.get_event_loop()
+
+    tool_defs = await loop.run_in_executor(
+        None,
+        mcp_client.list_tools
+    )
+
+    tools = []
+    for tool_def in tool_defs:
+        schema = tool_def.get("inputSchema", {})
+        properties = schema.get("properties", {})
+        required = set(schema.get("required", []))
+        fields = {}
+
+        for field_name, field_schema in properties.items():
+            python_type = _json_schema_to_python_type(field_schema)
+            default = ... if field_name in required else field_schema.get("default", None)
+
+            field_description = field_schema.get("description", "")
+            if default is not ... and default is not None:
+                fields[field_name] = (
+                    python_type,
+                    Field(default=default, description=field_description)
+                )
+            elif field_description:
+                fields[field_name] = (
+                    python_type,
+                    Field(..., description=field_description)
+                )
+            else:
+                fields[field_name] = (python_type, default)
+
+        args_model = create_model(f"MCPToolInput_{tool_def['name']}", **fields)
+
+        def _invoke_factory(tool_name: str):
+            async def _async_invoke(**kwargs):
+                return await loop.run_in_executor(
+                    None,
+                    lambda: mcp_client.call_tool(tool_name, kwargs)
+                )
+
+            def _sync_invoke(**kwargs):
+                return mcp_client.call_tool(tool_name, kwargs)
+
+            return _async_invoke if hasattr(asyncio, 'current_task') else _sync_invoke
+
+        invoke_func = _invoke_factory(tool_def["name"])
+
+        tools.append(
+            StructuredTool.from_function(
+                func=invoke_func,
+                name=tool_def["name"],
+                description=tool_def.get("description", tool_def["name"]),
+                args_schema=args_model,
+            )
+        )
+
+    return tools
+

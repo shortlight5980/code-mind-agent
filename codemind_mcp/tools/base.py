@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from ..sdk import ToolDefinition, load_sdk_modules
+from mcp.types import Tool
 
 
 class BaseMCPTool(ABC):
@@ -29,15 +29,7 @@ class BaseMCPTool(ABC):
         pass
 
     def get_definition(self):
-        _, _, sdk_tool_type, _ = load_sdk_modules()
-        if sdk_tool_type is not None:
-            return sdk_tool_type(
-                name=self.name,
-                description=self.description,
-                inputSchema=self.input_schema,
-            )
-
-        return ToolDefinition(
+        return Tool(
             name=self.name,
             description=self.description,
             inputSchema=self.input_schema,

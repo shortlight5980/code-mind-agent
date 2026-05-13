@@ -24,7 +24,7 @@ retrieval:
 
 # 被索引的代码仓库路径（用于 Agent 工具查找文件）
 repo:
-  path: "/home/ljw/projects/FastGPT"
+  path: "D:/LJW/projects/FastGPT"
 
 embeddings:
   model: "text-embedding-v1"
@@ -76,6 +76,6 @@ mcp:
     - "-n"
     - "AIP312"
     - "python"
-    - "/home/ljw/桌面/CodeMind/code-mind-agent/codemind_mcp/server.py"
+    - "C:/Users/14144/Desktop/CodeMind/CodeMindAgent/codemind_mcp/server.py"
   call_timeout: 10
   startup_timeout: 15
