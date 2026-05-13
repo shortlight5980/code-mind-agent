@@ -40,9 +40,6 @@ def get_tools():
             ReadFileTool(),
             SearchCodeTool(),
             RunCommandTool(),
-            IndexRepoTool(),
-            AddByFilePathTool(),
-            DeleteByFilePathTool(),
         ]
     return _TOOLS
 
