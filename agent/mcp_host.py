@@ -385,18 +385,10 @@ def build_langchain_mcp_tools(mcp_client: MCPClient) -> list[StructuredTool]:
             default = ... if field_name in required else field_schema.get("default", None)
 
             field_description = field_schema.get("description", "")
-            if default is not ... and default is not None:
-                fields[field_name] = (
-                    python_type,
-                    Field(default=default, description=field_description)
-                )
-            elif field_description:
-                fields[field_name] = (
-                    python_type,
-                    Field(..., description=field_description)
-                )
-            else:
-                fields[field_name] = (python_type, default)
+            fields[field_name] = (
+                python_type,
+                Field(default=default, description=field_description),
+            )
 
         args_model = create_model(f"MCPToolInput_{tool_def['name']}", **fields)
 
@@ -442,18 +434,10 @@ async def async_build_langchain_mcp_tools(mcp_client: MCPClient) -> list[Structu
             default = ... if field_name in required else field_schema.get("default", None)
 
             field_description = field_schema.get("description", "")
-            if default is not ... and default is not None:
-                fields[field_name] = (
-                    python_type,
-                    Field(default=default, description=field_description)
-                )
-            elif field_description:
-                fields[field_name] = (
-                    python_type,
-                    Field(..., description=field_description)
-                )
-            else:
-                fields[field_name] = (python_type, default)
+            fields[field_name] = (
+                python_type,
+                Field(default=default, description=field_description),
+            )
 
         args_model = create_model(f"MCPToolInput_{tool_def['name']}", **fields)
 

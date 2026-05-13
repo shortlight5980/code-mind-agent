@@ -40,5 +40,9 @@ class AddByFilePathTool(BaseMCPTool):
     async def call(self, arguments: dict[str, Any]) -> str:
         source_path = arguments["source_path"]
         persist_dir = arguments.get("persist_dir")
-        count = add_documents_by_source(source_path=source_path, persist_dir=persist_dir)
+        count = await self.run_blocking(
+            add_documents_by_source,
+            source_path=source_path,
+            persist_dir=persist_dir,
+        )
         return f"索引追加完成，新增分块数: {count}"

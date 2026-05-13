@@ -39,5 +39,5 @@ class IndexRepoTool(BaseMCPTool):
     async def call(self, arguments: dict[str, Any]) -> str:
         repo_path = arguments.get("repo_path")
         persist_dir = arguments.get("persist_dir")
-        index_repo(repo_path=repo_path, persist_dir=persist_dir)
+        await self.run_blocking(index_repo, repo_path=repo_path, persist_dir=persist_dir)
         return "仓库索引完成"

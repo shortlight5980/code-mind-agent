@@ -33,4 +33,4 @@ class RunCommandTool(BaseMCPTool):
         }
 
     async def call(self, arguments: dict[str, Any]) -> str:
-        return run_command_impl(command=arguments["command"])
+        return await self.run_blocking(run_command_impl, command=arguments["command"])

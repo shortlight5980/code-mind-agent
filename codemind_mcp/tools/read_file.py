@@ -43,7 +43,8 @@ class ReadFileTool(BaseMCPTool):
         }
 
     async def call(self, arguments: dict[str, Any]) -> str:
-        return read_file_impl(
+        return await self.run_blocking(
+            read_file_impl,
             file_path=arguments["file_path"],
             start_line=arguments.get("start_line"),
             end_line=arguments.get("end_line"),

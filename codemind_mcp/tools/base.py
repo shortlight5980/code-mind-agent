@@ -4,6 +4,7 @@ Base class for CodeMind MCP tools.
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -34,6 +35,9 @@ class BaseMCPTool(ABC):
             description=self.description,
             inputSchema=self.input_schema,
         )
+
+    async def run_blocking(self, func, /, *args, **kwargs):
+        return await asyncio.to_thread(func, *args, **kwargs)
 
     @abstractmethod
     async def call(self, arguments: dict[str, Any]) -> str:

@@ -43,7 +43,8 @@ class SearchCodeTool(BaseMCPTool):
         }
 
     async def call(self, arguments: dict[str, Any]) -> str:
-        return search_code_impl(
+        return await self.run_blocking(
+            search_code_impl,
             query=arguments["query"],
             is_regex=arguments.get("is_regex", False),
             search_dir=arguments.get("search_dir", "."),

@@ -35,5 +35,5 @@ class DeleteByFilePathTool(BaseMCPTool):
 
     async def call(self, arguments: dict[str, Any]) -> str:
         source_path = arguments["source_path"]
-        delete_documents_by_source(source_path)
+        await self.run_blocking(delete_documents_by_source, source_path)
         return f"索引删除完成: {source_path}"
