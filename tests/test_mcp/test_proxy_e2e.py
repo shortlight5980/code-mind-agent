@@ -34,7 +34,7 @@ class MCPProxyEndToEndTests(unittest.TestCase):
                     tools = {tool.name: tool for tool in build_langchain_mcp_tools(client)}
                     read_result = tools["codemind_read_file"].invoke({"file_path": "src/main.py"})
                     search_result = tools["codemind_search_code"].invoke({"query": "needle"})
-                    with patch("codemind_mcp.tool_impl.subprocess.run") as mock_run:
+                    with patch("codemind_mcp.tools.run_command.subprocess.run") as mock_run:
                         import subprocess
                         mock_run.return_value = subprocess.CompletedProcess(
                             args=["git", "status"],

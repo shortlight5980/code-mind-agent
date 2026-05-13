@@ -5,7 +5,9 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from codemind_mcp.tools.output_truncation import MAX_TOOL_OUTPUT_CHARS
-from codemind_mcp.tool_impl import read_file_impl, run_command_impl, search_code_impl
+from codemind_mcp.tools.read_file import read_file_impl
+from codemind_mcp.tools.run_command import run_command_impl
+from codemind_mcp.tools.search_code import search_code_impl
 
 
 class ToolRepoPathTests(unittest.TestCase):
@@ -67,7 +69,7 @@ class ToolRepoPathTests(unittest.TestCase):
 
             with (
                 patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)),
-                patch("codemind_mcp.tool_impl.subprocess.run", return_value=completed) as mock_run,
+                patch("codemind_mcp.tools.run_command.subprocess.run", return_value=completed) as mock_run,
             ):
                 result = run_command_impl("git rev-parse --show-toplevel")
 
@@ -133,7 +135,7 @@ class ToolRepoPathTests(unittest.TestCase):
 
             with (
                 patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)),
-                patch("codemind_mcp.tool_impl.subprocess.run", return_value=completed),
+                patch("codemind_mcp.tools.run_command.subprocess.run", return_value=completed),
             ):
                 result = run_command_impl("git status")
 

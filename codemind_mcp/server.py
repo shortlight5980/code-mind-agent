@@ -64,7 +64,7 @@ async def call_registered_tool(name: str, arguments: dict | None = None) -> str:
 def _get_truncation_tool_name(name: str) -> str:
     """将 MCP 工具名称转换为用于截断消息的显示名称。"""
     if name.startswith("codemind_"):
-        name = name[len("codemind_"):]
+        name = name[9:]
     return "".join(part.capitalize() for part in name.split("_") if part)
 
 

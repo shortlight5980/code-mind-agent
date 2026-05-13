@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import time
 import unittest
 from unittest.mock import patch
@@ -9,6 +10,9 @@ from codemind_mcp.tools.search_code import SearchCodeTool
 
 
 class AsyncWrapperTests(unittest.TestCase):
+    def test_tool_modules_do_not_import_legacy_tool_impl(self):
+        self.assertNotIn("codemind_mcp.tool_impl", sys.modules)
+
     def _assert_call_does_not_block_event_loop(self, tool, arguments, patch_target):
         def blocking_impl(*args, **kwargs):
             time.sleep(0.2)
