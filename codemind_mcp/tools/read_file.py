@@ -169,7 +169,7 @@ class ReadFileTool(BaseMCPTool):
 
     @property
     def description(self) -> str:
-        return "读取指定文件内容，支持按行号范围读取。"
+        return "按行号范围读取指定文件内容。"
 
     @property
     def input_schema(self) -> dict[str, Any]:
@@ -191,7 +191,7 @@ class ReadFileTool(BaseMCPTool):
                     "minimum": 1,
                 },
             },
-            "required": ["file_path"],
+            "required": ["file_path", "start_line", "end_line"],
         }
 
     async def call(self, arguments: dict[str, Any]) -> str:
