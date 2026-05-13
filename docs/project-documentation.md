@@ -383,28 +383,29 @@ async def local_stdio_server(stdin, stdout, server):
 
 ### 工具实现层
 
-**文件**: `codemind_mcp/tool_impl.py`
+**文件**: 各工具文件内直接实现（如 `codemind_mcp/tools/read_file.py` 等）
 
 **设计要点**:
-- 所有工具的实际实现代码在这里
-- 复用原有的安全检查模块 (`agent/security.py`)
-- 复用原有的工具路径模块 (`agent/tool_paths.py`)
-- 提供统一的输出截断机制
+- 每个工具的实现代码直接在对应工具文件中
+- 安全检查模块 (`codemind_mcp/security.py`) 提供统一的安全验证
+- 工具路径模块 (`codemind_mcp/tool_paths.py`) 提供路径解析功能
+- 输出截断模块 (`codemind_mcp/output_truncation.py`) 提供统一的输出截断机制
+- ReadFile 工具最多支持读取 256 行，如需更多请分批读取
 
-**核心功能**:
+**核心功能分布**:
 
-| 功能 | 说明 |
-|------|------|
-| `resolve_file_path()` | 解析文件路径，支持相对路径/绝对路径/仓库内搜索 |
-| `search_file_by_name()` | 在允许的目录中按文件名搜索 |
-| `search_content_in_files()` | 在文件内容中搜索关键词/正则 |
-| `execute_shell_command()` | 执行安全的 shell 命令，白名单验证 |
-| `truncate_tool_output()` | 截断工具输出，避免超过上下文限制 |
+| 功能 | 位置 | 说明 |
+|------|------|------|
+| `resolve_file_path()` | `codemind_mcp/tools/read_file.py` | 解析文件路径，支持相对路径/绝对路径/仓库内搜索 |
+| `search_file_by_name()` | `codemind_mcp/tools/read_file.py` | 在允许的目录中按文件名搜索 |
+| `search_content_in_files()` | `codemind_mcp/tools/search_code.py` | 在文件内容中搜索关键词/正则 |
+| `execute_shell_command()` | `codemind_mcp/tools/run_command.py` | 执行安全的 shell 命令，白名单验证 |
+| `truncate_tool_output()` | `codemind_mcp/output_truncation.py` | 截断工具输出，避免超过上下文限制 |
 
-**安全检查复用**:
+**安全检查模块**:
 - 所有文件操作通过 `validate_file_access()` 验证
 - 所有命令操作通过 `is_command_allowed()` 验证
-- 路径白名单、敏感文件规则与原架构一致
+- 路径白名单、敏感文件规则保持一致
 
 ### 工具定义层
 
@@ -1148,13 +1149,12 @@ async def RetrieveAndSummarize(question: str) -> str:
 **注意**: 原 `agent/tools/read_file.py` 已移除，工具实现已迁移到 MCP Server
 
 **MCP Server 位置**:
-- 定义: `codemind_mcp/tools/read_file.py`
-- 实现: `codemind_mcp/tool_impl.py`
+- 定义及实现: `codemind_mcp/tools/read_file.py`
 
 **功能**:
 - 支持相对仓库根目录的路径
 - 自动搜索同名文件
-- 支持行号范围
+- 支持行号范围（最多读取256行）
 - UTF-8/GBK 双编码支持
 - 带行号显示
 
@@ -1163,8 +1163,7 @@ async def RetrieveAndSummarize(question: str) -> str:
 **注意**: 原 `agent/tools/search_code.py` 已移除，工具实现已迁移到 MCP Server
 
 **MCP Server 位置**:
-- 定义: `codemind_mcp/tools/search_code.py`
-- 实现: `codemind_mcp/tool_impl.py`
+- 定义及实现: `codemind_mcp/tools/search_code.py`
 
 **功能**:
 - 关键词搜索
@@ -1177,8 +1176,7 @@ async def RetrieveAndSummarize(question: str) -> str:
 **注意**: 原 `agent/tools/run_command.py` 已移除，工具实现已迁移到 MCP Server
 
 **MCP Server 位置**:
-- 定义: `codemind_mcp/tools/run_command.py`
-- 实现: `codemind_mcp/tool_impl.py`
+- 定义及实现: `codemind_mcp/tools/run_command.py`
 
 **功能**:
 - 执行只读命令
@@ -1200,7 +1198,7 @@ async def RetrieveAndSummarize(question: str) -> str:
 
 ## 安全机制
 
-**文件**: `agent/security.py`
+**文件**: `codemind_mcp/security.py`
 
 ### 1. 路径安全检查
 
@@ -1810,18 +1808,17 @@ pip install -r requirements.txt
 | `requirements.txt` | Python 依赖列表 |
 | `agent/agent.py` | CodeMind Agent 核心类（MCP Host） |
 | `agent/mcp_host.py` | MCP 客户端封装 |
-| `agent/security.py` | 安全检查模块 |
 | `agent/streaming.py` | 流式输出处理 |
 | `agent/tools/retrieve_and_summarize.py` | 检索总结工具（仅存的本地工具） |
 | `codemind_mcp/server.py` | MCP Server 入口 |
 | `codemind_mcp/sdk.py` | MCP SDK 适配层 |
-| `codemind_mcp/tool_impl.py` | MCP 工具实现 |
-| `codemind_mcp/security.py` | MCP 安全模块代理 |
-| `codemind_mcp/tool_paths.py` | MCP 工具路径代理 |
+| `codemind_mcp/security.py` | MCP 安全模块 |
+| `codemind_mcp/tool_paths.py` | MCP 工具路径 |
+| `codemind_mcp/output_truncation.py` | 工具输出截断模块 |
 | `codemind_mcp/tools/base.py` | MCP 工具基类 |
-| `codemind_mcp/tools/read_file.py` | ReadFile 工具定义 |
-| `codemind_mcp/tools/search_code.py` | SearchCode 工具定义 |
-| `codemind_mcp/tools/run_command.py` | RunCommand 工具定义 |
+| `codemind_mcp/tools/read_file.py` | ReadFile 工具定义及实现（最多支持读取256行） |
+| `codemind_mcp/tools/search_code.py` | SearchCode 工具定义及实现 |
+| `codemind_mcp/tools/run_command.py` | RunCommand 工具定义及实现 |
 | `codemind_mcp/tools/index_manager/` | IndexManager 工具集 |
 | `prompts/prompt_manager.py` | 提示词管理器 |
 | `scripts/index_repo.py` | 仓库索引脚本 |

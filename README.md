@@ -201,21 +201,20 @@ CodeMindAgent/
 ├── agent/                    # Agent 核心模块 (MCP Host)
 │   ├── agent.py             # CodeMind Agent 主类
 │   ├── mcp_host.py          # MCP 客户端封装 (Agent 作为 MCP Host)
-│   ├── security.py          # 安全检查模块
 │   ├── streaming.py         # 流式输出处理
 │   └── tools/               # Agent 本地工具集
 │       └── retrieve_and_summarize.py  # 检索总结工具 (仅存的本地工具)
 ├── codemind_mcp/            # MCP 服务层
 │   ├── server.py            # MCP Server 入口
 │   ├── sdk.py               # MCP SDK 适配层
-│   ├── tool_impl.py         # MCP 工具的具体实现
-│   ├── security.py          # MCP 安全模块 (代理)
-│   ├── tool_paths.py        # MCP 工具路径 (代理)
-│   └── tools/               # MCP 工具定义
+│   ├── security.py          # MCP 安全模块
+│   ├── tool_paths.py        # MCP 工具路径
+│   ├── output_truncation.py # 工具输出截断模块
+│   └── tools/               # MCP 工具定义（含实现）
 │       ├── base.py          # 工具基类
-│       ├── read_file.py     # 读取文件工具
-│       ├── search_code.py   # 代码搜索工具
-│       ├── run_command.py   # 命令执行工具
+│       ├── read_file.py     # 读取文件工具（含实现，最多支持读取256行）
+│       ├── search_code.py   # 代码搜索工具（含实现）
+│       ├── run_command.py   # 命令执行工具（含实现）
 │       └── index_manager/   # 索引管理工具集
 │           ├── index_repo.py
 │           ├── add_by_file_path.py
@@ -339,7 +338,7 @@ mcp:
 根据用户问题从代码库中检索相关文档并进行总结提炼。这是获取代码库上下文的首选工具，**始终在本地执行**（不通过 MCP）。
 
 ### 2. ReadFile
-读取指定文件内容，支持按行号范围读取。**通过 MCP server 调用**。
+读取指定文件内容，支持按行号范围读取。最多支持读取256行，如需读取更多，请分批读取。**通过 MCP server 调用**。
 
 ### 3. SearchCode
 在代码库中搜索关键词或正则表达式。**通过 MCP server 调用**。
