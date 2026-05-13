@@ -105,7 +105,7 @@ def _read_file_with_lines(
 
         total_lines = len(lines)
         start_idx = 0 if start_line is None else max(0, start_line - 1)
-        end_idx = total_lines if end_line is None else min(total_lines, end_line)
+        end_idx = total_lines if end_line is None else min(min(total_lines, end_line), start_idx + 256)
 
         if start_idx >= end_idx:
             return f"[警告] 行号范围无效: start_line={start_line}, end_line={end_line}, 文件共 {total_lines} 行"
@@ -169,7 +169,7 @@ class ReadFileTool(BaseMCPTool):
 
     @property
     def description(self) -> str:
-        return "按行号范围读取指定文件内容。"
+        return "按行号范围读取指定文件内容。最多支持读取256行，要读取文件全部，请一批一批读取。"
 
     @property
     def input_schema(self) -> dict[str, Any]:
