@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from codemind_mcp.tools.output_truncation import MAX_TOOL_OUTPUT_CHARS
+from codemind_mcp.output_truncation import MAX_TOOL_OUTPUT_CHARS
 from codemind_mcp.tools.read_file import read_file_impl
 from codemind_mcp.tools.run_command import run_command_impl
 from codemind_mcp.tools.search_code import search_code_impl

@@ -9,7 +9,7 @@ import sys
 from typing import Any
 
 from .base import BaseMCPTool
-from .output_truncation import truncate_tool_output
+from codemind_mcp.output_truncation import truncate_tool_output
 from codemind_mcp.security import is_command_allowed
 from codemind_mcp.tool_paths import get_repo_path, resolve_repo_relative_path
 from utils.config import Config

@@ -17,7 +17,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, TextContent
 
 from codemind_mcp.tools.index_manager import AddByFilePathTool, DeleteByFilePathTool, IndexRepoTool
-from codemind_mcp.tools.output_truncation import truncate_tool_output
+from codemind_mcp.output_truncation import truncate_tool_output
 from codemind_mcp.tools.read_file import ReadFileTool
 from codemind_mcp.tools.run_command import RunCommandTool
 from codemind_mcp.tools.search_code import SearchCodeTool

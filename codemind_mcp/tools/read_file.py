@@ -6,7 +6,7 @@ import os
 from typing import Any, Optional
 
 from .base import BaseMCPTool
-from .output_truncation import truncate_tool_output
+from codemind_mcp.output_truncation import truncate_tool_output
 from codemind_mcp.security import is_path_allowed, validate_file_access
 from codemind_mcp.tool_paths import get_allowed_dirs, get_repo_path, get_repo_paths_for_read
 from utils.config import Config

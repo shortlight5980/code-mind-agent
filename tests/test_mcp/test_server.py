@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from codemind_mcp.server import call_registered_tool, call_tool, get_tools, list_registered_tools
-from codemind_mcp.tools.output_truncation import MAX_TOOL_OUTPUT_CHARS
+from codemind_mcp.output_truncation import MAX_TOOL_OUTPUT_CHARS
 
 
 class MCPServerTests(unittest.TestCase):
