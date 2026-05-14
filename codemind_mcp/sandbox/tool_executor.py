@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from typing import Optional
 
 from codemind_mcp.output_truncation import truncate_tool_output
@@ -12,6 +13,7 @@ from codemind_mcp.tools.read_file import (
     resolve_file_path,
     search_file_by_name,
 )
+from codemind_mcp.tools.run_command import run_command_impl
 from codemind_mcp.tools.search_code import should_ignore_dir, should_ignore_file
 from utils.config import Config
 from utils.logger import get_logger
@@ -154,6 +156,10 @@ class SandboxedToolExecutor:
         if not is_command_allowed(command, allowed_commands):
             return f"[错误] 命令不在白名单内，禁止执行: {command}"
 
+        if self._should_use_local_readonly_execution(command):
+            logger.info("Using local readonly command path for sandboxed command: %s", command)
+            return run_command_impl(command)
+
         if Config.get("e2b.repo_sync_enabled", True):
             await self.sync_repo_to_sandbox()
 
@@ -165,6 +171,17 @@ class SandboxedToolExecutor:
             output.append("标准错误:\n" + "-" * 40 + "\n" + result["stderr"])
         output.append(f"\n返回码: {result['returncode']}")
         return truncate_tool_output("\n".join(output), "RunCommand")
+
+    @staticmethod
+    def _should_use_local_readonly_execution(command: str) -> bool:
+        """Avoid full-repo sandbox sync for lightweight readonly commands."""
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            return False
+        if not parts:
+            return False
+        return os.path.basename(parts[0]).lower() in {"ls", "cat", "grep", "find", "head", "tail", "wc"}
 
     def _resolve_search_dir(self, search_dir: str) -> str:
         if not search_dir or search_dir == ".":

@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -99,6 +100,38 @@ class SandboxedExecutorTests(unittest.TestCase):
         self.assertIn("文件 src/main.py", search_result)
         self.assertIn("sandbox-ok", run_result)
         self.assertEqual(("git status", 5, "/workspace/repo"), sandbox.commands[0])
+
+    def test_readonly_commands_use_local_path_without_repo_sync(self):
+        with TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "repo"
+            repo_root.mkdir()
+            sandbox = _FakeSandbox()
+            executor = SandboxedToolExecutor(
+                sandbox=sandbox,
+                repo_path=str(repo_root),
+                allowed_dirs=[str(repo_root)],
+            )
+            values = {
+                "repo.path": str(repo_root),
+                "agent.allowed_commands": ["ls"],
+                "agent.command_timeout": 5,
+            }
+            completed = subprocess.CompletedProcess(
+                args=["ls"],
+                returncode=0,
+                stdout="file-a\n",
+                stderr="",
+            )
+
+            with (
+                patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)),
+                patch("codemind_mcp.sandbox.tool_executor.run_command_impl", return_value="标准输出:\n----------------------------------------\nfile-a\n\n返回码: 0") as mock_local_run,
+            ):
+                result = asyncio.run(executor.execute_run_command("ls", timeout=5))
+
+        self.assertIn("file-a", result)
+        self.assertEqual([], sandbox.commands)
+        mock_local_run.assert_called_once_with("ls")
 
 
 class SandboxedToolWrapperTests(unittest.TestCase):
