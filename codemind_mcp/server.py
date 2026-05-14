@@ -18,6 +18,12 @@ from mcp.types import CallToolResult, TextContent
 
 from codemind_mcp.tools.index_manager import AddByFilePathTool, DeleteByFilePathTool, IndexRepoTool
 from codemind_mcp.output_truncation import truncate_tool_output
+from codemind_mcp.sandbox import (
+    E2BSandboxError,
+    SandboxedReadFileTool,
+    SandboxedRunCommandTool,
+    SandboxedSearchCodeTool,
+)
 from codemind_mcp.tools.read_file import ReadFileTool
 from codemind_mcp.tools.run_command import RunCommandTool
 from codemind_mcp.tools.search_code import SearchCodeTool
@@ -36,10 +42,31 @@ def get_tools():
     """返回懒初始化的 CodeMind MCP 工具列表。"""
     global _TOOLS
     if _TOOLS is None:
-        _TOOLS = [
-            ReadFileTool(),
-            SearchCodeTool(),
-            RunCommandTool(),
+        use_sandbox = Config.get("e2b.enabled", False)
+        if use_sandbox:
+            api_key = Config.get("e2b.api_key") or Config.get_env("E2B_API_KEY", "")
+            if not api_key:
+                logger.warning("E2B 沙箱已启用，但未配置 API Key，回退到本地工具")
+                use_sandbox = False
+
+        if use_sandbox:
+            logger.info("MCP tools running in E2B sandbox mode")
+            tool_list = [
+                SandboxedReadFileTool(),
+                SandboxedSearchCodeTool(),
+                SandboxedRunCommandTool(),
+            ]
+        else:
+            tool_list = [
+                ReadFileTool(),
+                SearchCodeTool(),
+                RunCommandTool(),
+            ]
+
+        _TOOLS = tool_list + [
+            IndexRepoTool(),
+            AddByFilePathTool(),
+            DeleteByFilePathTool(),
         ]
     return _TOOLS
 
@@ -53,7 +80,11 @@ async def call_registered_tool(name: str, arguments: dict | None = None) -> str:
     """根据 MCP 工具名称分发工具调用。"""
     for tool in get_tools():
         if tool.name == name:
-            return await tool.call(arguments or {})
+            try:
+                return await tool.call(arguments or {})
+            except E2BSandboxError as exc:
+                logger.error(f"Sandbox execution failed for {name}: {exc}")
+                return f"[错误] 沙箱执行失败: {exc}"
 
     raise ValueError(f"未知工具: {name}")
 

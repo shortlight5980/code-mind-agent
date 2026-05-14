@@ -20,7 +20,9 @@
       "Bash(ls -la /home/ljw/桌面/CodeMind/)",
       "Read(//home/ljw/桌面/CodeMind/**)",
       "Bash(ls -la /home/ljw/.claude/skills/planning-with-files/templates/)",
-      "Read(//home/ljw/.agents/skills/planning-with-files/templates/**)"
+      "Read(//home/ljw/.agents/skills/planning-with-files/templates/**)",
+      "Bash(bash *)",
+      "WebFetch(domain:e2b.dev)"
     ]
   }
 }

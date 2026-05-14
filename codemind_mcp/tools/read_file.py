@@ -191,7 +191,7 @@ class ReadFileTool(BaseMCPTool):
                     "minimum": 1,
                 },
             },
-            "required": ["file_path", "start_line", "end_line"],
+            "required": ["file_path"],
         }
 
     async def call(self, arguments: dict[str, Any]) -> str:

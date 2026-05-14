@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Any, Dict
 import yaml
 from dotenv import load_dotenv
@@ -9,6 +10,22 @@ class Config:
 
     _config: Dict[str, Any] = {}
     _loaded: bool = False
+
+    @staticmethod
+    def _expand_env_vars(value: Any) -> Any:
+        """Recursively expand ${VAR} placeholders in config values."""
+        if isinstance(value, dict):
+            return {key: Config._expand_env_vars(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [Config._expand_env_vars(item) for item in value]
+        if isinstance(value, str):
+            pattern = re.compile(r"\$\{([^}]+)\}")
+
+            def replace(match: re.Match[str]) -> str:
+                return os.getenv(match.group(1), match.group(0))
+
+            return pattern.sub(replace, value)
+        return value
 
     @classmethod
     def load(cls, config_path: str = "config.yml") -> None:
@@ -23,7 +40,7 @@ class Config:
         # Load YAML config
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
-                cls._config = yaml.safe_load(f) or {}
+                cls._config = cls._expand_env_vars(yaml.safe_load(f) or {})
 
         cls._loaded = True
 

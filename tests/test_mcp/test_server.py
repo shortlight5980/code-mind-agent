@@ -3,11 +3,17 @@ import sys
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from codemind_mcp.sandbox.sandboxed_tools import SandboxedReadFileTool
 from codemind_mcp.server import call_registered_tool, call_tool, get_tools, list_registered_tools
 from codemind_mcp.output_truncation import MAX_TOOL_OUTPUT_CHARS
 
 
 class MCPServerTests(unittest.TestCase):
+    def setUp(self):
+        import codemind_mcp.server as server_module
+
+        server_module._TOOLS = None
+
     def test_server_imports_mcp_sdk_directly(self):
         self.assertNotIn("codemind_mcp.sdk", sys.modules)
 
@@ -24,6 +30,17 @@ class MCPServerTests(unittest.TestCase):
                 "codemind_delete_by_file_path",
             },
         )
+
+    def test_get_tools_uses_sandboxed_variants_when_enabled(self):
+        values = {
+            "e2b.enabled": True,
+            "e2b.api_key": "test-key",
+        }
+
+        with patch("utils.config.Config.get", side_effect=lambda key, default=None: values.get(key, default)):
+            tools = get_tools()
+
+        self.assertIsInstance(tools[0], SandboxedReadFileTool)
 
     def test_list_registered_tools_returns_definitions(self):
         definitions = asyncio.run(list_registered_tools())
