@@ -52,13 +52,15 @@ class E2BSandbox:
             kwargs["api_key"] = self.api_key
         if self.template:
             kwargs["template"] = self.template
+        if self.timeout:
+            kwargs["timeout"] = self.timeout
 
         try:
             create = getattr(Sandbox, "create", None)
             if callable(create):
-                self._sandbox = await create(**kwargs)
+                self._sandbox = await self._maybe_await(create(**kwargs))
             else:
-                self._sandbox = Sandbox(**kwargs)
+                self._sandbox = await self._maybe_await(Sandbox(**kwargs))
         except Exception as exc:
             raise E2BSandboxError(f"创建 E2B 沙箱失败: {exc}") from exc
 

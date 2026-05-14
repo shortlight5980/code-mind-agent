@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from codemind_mcp.sandbox.e2b_sandbox import E2BSandbox
 from codemind_mcp.sandbox.sandboxed_tools import (
     SandboxedReadFileTool,
     SandboxedRunCommandTool,
@@ -49,6 +50,22 @@ class _FakeE2BSandbox:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         return None
+
+
+class E2BSandboxCompatTests(unittest.TestCase):
+    def test_connect_supports_sync_create_api(self):
+        created = object()
+
+        class _FakeSdkSandbox:
+            @classmethod
+            def create(cls, **kwargs):
+                return created
+
+        with patch("e2b.Sandbox", _FakeSdkSandbox):
+            sandbox = E2BSandbox(api_key="k", template="base", timeout=30)
+            asyncio.run(sandbox.connect())
+
+        self.assertIs(sandbox._sandbox, created)
 
 
 class SandboxedExecutorTests(unittest.TestCase):
