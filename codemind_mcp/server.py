@@ -6,6 +6,9 @@ import asyncio
 import os
 import sys
 
+# MCP stdio 传输要求 stdout 只承载 JSON-RPC 消息，业务日志默认打到 stderr。
+os.environ.setdefault("CODEMIND_LOG_STDERR", "1")
+
 # 如果作为脚本直接运行，确保项目根目录在 sys.path 中
 if __package__ in (None, ""):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,9 +32,6 @@ from codemind_mcp.tools.run_command import RunCommandTool
 from codemind_mcp.tools.search_code import SearchCodeTool
 from utils.config import Config
 from utils.logger import get_logger
-
-# 默认将日志输出到 stderr
-os.environ.setdefault("CODEMIND_LOG_STDERR", "1")
 
 logger = get_logger("mcp.server")
 app = Server("codemind-mcp-server")

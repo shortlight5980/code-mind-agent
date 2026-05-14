@@ -36,7 +36,8 @@ def get_logger(name: str = "codemind") -> logging.Logger:
     )
 
     # Console handler (INFO level)
-    stream = sys.stderr if os.getenv("CODEMIND_LOG_STDERR") == "1" else sys.stdout
+    log_to_stderr = os.getenv("CODEMIND_LOG_STDERR", "1") != "0"
+    stream = sys.stderr if log_to_stderr else sys.stdout
     console_handler = logging.StreamHandler(stream)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
