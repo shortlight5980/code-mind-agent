@@ -63,11 +63,13 @@ def get_tools():
                 RunCommandTool(),
             ]
 
-        _TOOLS = tool_list + [
-            IndexRepoTool(),
-            AddByFilePathTool(),
-            DeleteByFilePathTool(),
-        ]
+        _TOOLS = tool_list
+        # 暂时不加这三个工具
+        # + [
+        #     IndexRepoTool(),
+        #     AddByFilePathTool(),
+        #     DeleteByFilePathTool(),
+        # ]
     return _TOOLS
 
 

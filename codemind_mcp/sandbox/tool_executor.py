@@ -1,4 +1,4 @@
-"""Execution helpers for sandbox-backed MCP tools."""
+"""沙箱支持的 MCP 工具执行助手。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ logger = get_logger("codemind_mcp.sandbox.executor")
 
 
 class SandboxedToolExecutor:
-    """Execute existing tool semantics inside an E2B sandbox."""
+    """在 E2B 沙箱中执行现有工具语义。"""
 
     def __init__(
         self,
@@ -41,7 +41,8 @@ class SandboxedToolExecutor:
         self._synced_files: set[str] = set()
 
     async def sync_repo_to_sandbox(self) -> None:
-        """Sync the allowed repository tree into the sandbox."""
+        """将允许的仓库目录树同步到沙箱中。"""
+        logger.info("同步仓库目录树到沙箱中...")
         for root, dirs, files in os.walk(self.repo_path):
             dirs[:] = [name for name in dirs if not should_ignore_dir(name)]
             for file_name in files:
@@ -53,7 +54,8 @@ class SandboxedToolExecutor:
                 await self._sync_local_file(local_path)
 
     async def ensure_file_available(self, local_path: str) -> str:
-        """Sync a single local file to the sandbox on demand."""
+        """按需将单个本地文件同步到沙箱。"""
+        logger.info(f"同步文件 {local_path} 到沙箱中...")
         normalized = normalize_path(local_path)
         if normalized not in self._synced_files:
             await self._sync_local_file(normalized)
@@ -65,6 +67,17 @@ class SandboxedToolExecutor:
         start_line: int | None = None,
         end_line: int | None = None,
     ) -> str:
+        """
+        读取文件内容并返回结果。
+
+        Args:
+            file_path: 文件路径。
+            start_line: 开始行数。
+            end_line: 结束行数。
+
+        Returns:
+            文件内容。
+        """
         blocked_patterns = Config.get("agent.blocked_files", None)
         abs_file_path = resolve_file_path(file_path, self.repo_path)
 
@@ -174,11 +187,12 @@ class SandboxedToolExecutor:
 
     @staticmethod
     def _should_use_local_readonly_execution(command: str) -> bool:
-        """Avoid full-repo sandbox sync for lightweight readonly commands."""
+        """避免为轻量级只读命令进行完整的仓库沙箱同步。"""
         try:
             parts = shlex.split(command)
         except ValueError:
             return False
+
         if not parts:
             return False
         return os.path.basename(parts[0]).lower() in {"ls", "cat", "grep", "find", "head", "tail", "wc"}

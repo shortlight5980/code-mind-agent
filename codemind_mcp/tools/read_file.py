@@ -38,15 +38,32 @@ def should_ignore_file(file_name: str) -> bool:
 
 
 def resolve_file_path(file_path: str, repo_path: str) -> Optional[str]:
+    """解析文件路径，尝试多种策略定位文件的绝对路径。
+
+    解析优先级：
+    1. 如果 file_path 本身是存在的文件，直接返回其规范化路径。
+    2. 如果 file_path 是相对于 repo_path 的路径且存在，返回其规范化路径。
+    3. 如果 file_path 是绝对路径，但前两步未找到，则提取文件名，在 repo_path 下查找同名文件。
+
+    Args:
+        file_path: 用户提供的文件路径（可能是相对路径、绝对路径或文件名）。
+        repo_path: 仓库根目录路径。
+
+    Returns:
+        找到的文件的规范化绝对路径，如果未找到则返回 None。
+    """
     from codemind_mcp.security import normalize_path
 
+    # 策略 1: 检查 file_path 是否为当前文件系统中存在的直接路径
     if os.path.exists(file_path) and os.path.isfile(file_path):
         return normalize_path(file_path)
 
+    # 策略 2: 检查 file_path 是否为相对于 repo_path 的路径
     path_in_repo = os.path.join(repo_path, file_path)
     if os.path.exists(path_in_repo) and os.path.isfile(path_in_repo):
         return normalize_path(path_in_repo)
 
+    # 策略 3: 如果 file_path 是绝对路径但未找到，尝试仅通过文件名在 repo_path 中查找
     if os.path.isabs(file_path):
         file_name = os.path.basename(file_path)
         path_in_repo_by_name = os.path.join(repo_path, file_name)
