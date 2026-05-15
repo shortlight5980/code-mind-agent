@@ -79,7 +79,7 @@ def _delete_bm25_documents_by_sources(target_sources: list[str]) -> int:
     return removed_count
 
 
-def delete_documents_by_source(source_path: str):
+def delete_documents_by_source(source_path: str, persist_dir: str | None = None):
     """
     删除指定源文件或源目录下的所有文档
 
@@ -90,7 +90,8 @@ def delete_documents_by_source(source_path: str):
     """
     Config.load()
 
-    persist_dir = Config.get("chroma.persist_dir", "../chroma_db")
+    if persist_dir is None:
+        persist_dir = Config.get("chroma.persist_dir", "../chroma_db")
     embedding_model = Config.get("embeddings.model", "text-embedding-v4")
 
     logger.info(f"加载向量数据库: {persist_dir}")
@@ -191,4 +192,3 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"删除失败: {e}", exc_info=True)
         print(f"\n删除失败: {e}")
-
