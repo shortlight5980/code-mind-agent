@@ -591,6 +591,139 @@ python scripts/benchmark_mcp_memory.py --stdio
 - `stdio` 模式: 有进程间通信开销，但提供完全隔离
 - 内存占用: `stdio` 模式会有两个 Python 进程（主进程 + Server）
 
+### MCP 沙箱执行
+
+#### 沙箱架构
+
+为了增强安全性，CodeMind Agent 支持通过 **E2B 沙箱** 执行 MCP 工具，提供完全隔离的运行环境：
+
+```
+MCP Server
+├─ 本地执行（默认）
+│   ├─ ReadFileTool
+│   ├─ SearchCodeTool
+│   └─ RunCommandTool
+│
+└─ 沙箱执行（可选）
+    ├─ SandboxedReadFileTool
+    ├─ SandboxedSearchCodeTool
+    └─ SandboxedRunCommandTool
+        └─ E2BSandbox 封装
+            ├─ 文件同步
+            ├─ 命令执行
+            └─ 沙箱生命周期管理
+```
+
+#### 沙箱模块
+
+**核心模块**:
+
+| 模块 | 文件 | 说明 |
+|------|------|------|
+| `E2BSandbox` | `codemind_mcp/sandbox/e2b_sandbox.py | E2B SDK 轻量封装 |
+| `SandboxedToolExecutor` | `codemind_mcp/sandbox/tool_executor.py | 沙箱工具执行器 |
+| `Sandboxed*Tool` | `codemind_mcp/sandbox/sandboxed_tools.py | 沙箱版工具封装 |
+
+**E2BSandbox 主要功能**:
+- 异步上下文管理器支持
+- 文件上传/下载
+- 沙箱文件读写（支持行号范围）
+- 命令执行
+- 目录列表
+- 兼容性适配不同版本的 E2B SDK
+
+**沙箱执行流程**:
+
+```
+1. 工具调用到达 MCP Server
+   ↓
+2. 检查 e2b.enabled 配置
+   ├─ true  → 创建沙箱上下文
+   └─ false → 本地执行
+   ↓
+3. 沙箱执行（如果启用）
+   ├─ 按需同步仓库文件到沙箱
+   ├─ 在沙箱中执行工具操作
+   └─ 返回结果
+   ↓
+4. 关闭沙箱
+```
+
+**工具特性**:
+- **安全双重检查仍在本地执行（第一道防线）
+- **轻量命令优化：ls, cat, grep, find, head, tail, wc 等只读命令即使在沙箱模式下优先本地执行，避免完整仓库同步开销
+- **按需文件同步：仅同步需要访问的文件
+
+#### 沙箱配置
+
+```yaml
+e2b:
+  enabled: false                      # 是否启用沙箱
+  api_key: "${E2B_API_KEY}"        # E2B API Key（支持 ${VAR} 环境变量展开）
+  template: "base"                  # 沙箱模板
+  timeout: 30                       # 沙箱超时（秒）
+  repo_sync_enabled: true           # 是否同步仓库到沙箱
+  workspace_root: "/workspace"         # 沙箱工作区根目录
+```
+
+#### 按 Git 变更更新索引
+
+**新增工具**: `UpdateByGitTool`
+
+**功能**: 根据 Git 提交、修订号、暂存区或工作区变更，自动删除旧索引并重建变更文件的新索引。
+
+**使用模式**:
+
+| 模式 | 说明 |
+|------|------|
+| `commits` | 使用最近 n 次提交（默认 n=1） |
+| `revision` | 使用指定提交修订号 |
+| `staged` | 使用暂存区变更 |
+| `working` | 使用工作区变更 |
+
+**脚本调用**:
+
+```bash
+# 使用最近 1 次提交（默认）
+python scripts/update_by_git.py
+
+# 使用最近 n 次提交
+python scripts/update_by_git.py --commits 3
+
+# 使用指定提交
+python scripts/update_by_git.py --revision abc123
+
+# 使用暂存区
+python scripts/update_by_git.py --staged
+
+# 使用工作区
+python scripts/update_by_git.py --working
+```
+
+**MCP 工具调用**:
+
+```python
+# 从 Agent 中调用
+UpdateByGitTool({
+  "mode": "commits",
+  "commits": 1,
+  "persist_dir": "./chroma_db"
+})
+```
+
+**更新流程**:
+
+```
+1. 获取 Git 变更文件列表
+   ↓
+2. 对每个变更文件
+   ├─ 从 Chroma 中删除旧索引
+   ├─ 从 BM25 中删除旧索引
+   └─ 如果文件仍然存在 → 重新索引
+   ↓
+3. 返回更新统计信息
+```
+
 ---
 
 ## RAG 技术深度解析
@@ -1154,9 +1287,11 @@ async def RetrieveAndSummarize(question: str) -> str:
 **功能**:
 - 支持相对仓库根目录的路径
 - 自动搜索同名文件
-- 支持行号范围（最多读取256行）
+- 支持行号范围（可选参数，最多读取256行）
 - UTF-8/GBK 双编码支持
 - 带行号显示
+
+**沙箱版本**: `SandboxedReadFileTool`
 
 ### 3. SearchCode 工具（已迁移到 MCP Server）
 
@@ -1171,6 +1306,8 @@ async def RetrieveAndSummarize(question: str) -> str:
 - 文件名过滤
 - 结果数量限制
 
+**沙箱版本**: `SandboxedSearchCodeTool`
+
 ### 4. RunCommand 工具（已迁移到 MCP Server）
 
 **注意**: 原 `agent/tools/run_command.py` 已移除，工具实现已迁移到 MCP Server
@@ -1184,7 +1321,9 @@ async def RetrieveAndSummarize(question: str) -> str:
 - 参数过滤 (如禁止 ls -R)
 - 超时控制
 
-### 5. IndexManager 工具集（新增，MCP Server）
+**沙箱版本**: `SandboxedRunCommandTool`
+
+### 5. IndexManager 工具集（新增， MCP Server）
 
 **MCP Server 位置**: `codemind_mcp/tools/index_manager/`
 
@@ -1193,6 +1332,7 @@ async def RetrieveAndSummarize(question: str) -> str:
 | IndexRepo | `index_repo.py` | 索引整个代码仓库 |
 | AddByFilePath | `add_by_file_path.py` | 增量追加文件/目录到索引 |
 | DeleteByFilePath | `delete_by_file_path.py` | 从索引中删除文件/目录 |
+| UpdateByGit | `update_by_git.py` | 根据 Git 变更更新索引 |
 
 ---
 
@@ -1285,8 +1425,21 @@ Config.load()
 2. 如果 config.yml 存在:
    yaml.safe_load() → _config 字典
    ↓
-3. _loaded = True
+3. 递归展开 ${VAR} 环境变量占位符
+   ↓
+4. _loaded = True
 ```
+
+### 环境变量展开
+
+配置文件支持 `${VAR}` 语法引用环境变量：
+
+```yaml
+e2b:
+  api_key: "${E2B_API_KEY}"  # 从环境变量 E2B_API_KEY 读取
+```
+
+**实现**: `Config._expand_env_vars()` 递归处理配置字典中的所有字符串值。
 
 ### 配置访问
 
@@ -1387,6 +1540,14 @@ mcp:
   server_env: {}                        # 可选: 传给 Server 的环境变量
   call_timeout: 10                      # 工具调用超时（秒）
   startup_timeout: 15                   # Server 启动超时（秒）
+
+e2b:
+  enabled: false                        # 是否启用 E2B 沙箱执行
+  api_key: "${E2B_API_KEY}"           # E2B API Key（支持环境变量展开）
+  template: "base"                      # E2B 沙箱模板
+  timeout: 30                           # 沙箱超时 (秒)
+  repo_sync_enabled: true               # 是否同步仓库到沙箱
+  workspace_root: "/workspace"            # 沙箱工作区根目录
 ```
 
 ---
@@ -1820,10 +1981,14 @@ pip install -r requirements.txt
 | `codemind_mcp/tools/search_code.py` | SearchCode 工具定义及实现 |
 | `codemind_mcp/tools/run_command.py` | RunCommand 工具定义及实现 |
 | `codemind_mcp/tools/index_manager/` | IndexManager 工具集 |
+| `codemind_mcp/sandbox/e2b_sandbox.py` | E2B 沙箱 SDK 封装 |
+| `codemind_mcp/sandbox/sandboxed_tools.py` | 沙箱版 MCP 工具封装 |
+| `codemind_mcp/sandbox/tool_executor.py` | 沙箱工具执行器 |
 | `prompts/prompt_manager.py` | 提示词管理器 |
 | `scripts/index_repo.py` | 仓库索引脚本 |
 | `scripts/add_by_file_path.py` | 增量追加文件/目录到索引 |
 | `scripts/delete_by_file_path.py` | 删除索引脚本 |
+| `scripts/update_by_git.py` | 根据 Git 变更更新索引脚本 |
 | `scripts/benchmark_mcp_tools.py` | MCP 工具延迟基准测试 |
 | `scripts/benchmark_mcp_memory.py` | MCP 工具内存基准测试 |
 | `services/service_manager.py` | 单例服务管理器 |

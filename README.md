@@ -60,6 +60,7 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # 编辑 .env，填入 DASHSCOPE_API_KEY
+# 可选：填入 E2B_API_KEY 用于沙箱执行
 ```
 
 2. **仓库配置**：在 `config.yml` 中设置要索引的仓库路径
@@ -90,6 +91,17 @@ transport 说明：
 - `stdio`：MCP server 作为独立子进程运行，通过 stdio 通信（推荐，完全隔离）
 - `local`：MCP server 在同一进程内直接调用（用于测试/调试）
 
+4. **沙箱配置（可选）**：通过 E2B 沙箱安全执行 MCP 工具
+```yaml
+e2b:
+  enabled: false          # 是否启用沙箱执行
+  api_key: "${E2B_API_KEY}"  # E2B API Key（或通过环境变量 E2B_API_KEY 设置）
+  template: "base"        # 沙箱模板
+  timeout: 30             # 沙箱超时（秒）
+  repo_sync_enabled: true  # 是否同步仓库到沙箱
+  workspace_root: "/workspace"  # 沙箱工作区根目录
+```
+
 ### 索引代码库
 
 ```bash
@@ -112,6 +124,32 @@ python scripts/add_by_file_path.py /path/to/new_directory --persist-dir ./chroma
 ```
 
 脚本会按当前索引规则过滤文件，生成 `chunk_hash`，并跳过现有索引中已经存在的分块。
+
+### 按 Git 变更更新索引
+
+根据 Git 提交记录、暂存区或工作区变更，自动删除旧索引并重建变更文件的新索引：
+
+```bash
+# 使用最近 1 次提交（默认）
+python scripts/update_by_git.py
+
+# 使用最近 n 次提交
+python scripts/update_by_git.py --commits 3
+
+# 使用指定提交修订号
+python scripts/update_by_git.py --revision abc123
+
+# 使用暂存区变更
+python scripts/update_by_git.py --staged
+
+# 使用工作区变更
+python scripts/update_by_git.py --working
+
+# 指定 Chroma 持久化目录
+python scripts/update_by_git.py --persist-dir ./chroma_db
+```
+
+此功能也可通过 MCP 工具 `codemind_update_by_git` 调用。
 
 ### 启动服务
 
@@ -210,6 +248,10 @@ CodeMindAgent/
 │   ├── security.py          # MCP 安全模块
 │   ├── tool_paths.py        # MCP 工具路径
 │   ├── output_truncation.py # 工具输出截断模块
+│   ├── sandbox/             # 沙箱执行模块
+│   │   ├── e2b_sandbox.py  # E2B 沙箱 SDK 封装
+│   │   ├── sandboxed_tools.py  # 沙箱版 MCP 工具封装
+│   │   └── tool_executor.py  # 沙箱工具执行器
 │   └── tools/               # MCP 工具定义（含实现）
 │       ├── base.py          # 工具基类
 │       ├── read_file.py     # 读取文件工具（含实现，最多支持读取256行）
@@ -218,13 +260,15 @@ CodeMindAgent/
 │       └── index_manager/   # 索引管理工具集
 │           ├── index_repo.py
 │           ├── add_by_file_path.py
-│           └── delete_by_file_path.py
+│           ├── delete_by_file_path.py
+│           └── update_by_git.py  # 按 Git 变更更新索引工具
 ├── prompts/                 # 提示词管理
 │   └── prompt_manager.py    # 提示词管理器
 ├── scripts/                 # 脚本工具
 │   ├── index_repo.py        # 仓库索引脚本
 │   ├── add_by_file_path.py  # 增量追加索引脚本
 │   ├── delete_by_file_path.py  # 删除索引脚本
+│   ├── update_by_git.py     # 按 Git 变更更新索引脚本
 │   ├── benchmark_mcp_tools.py  # MCP 工具基准测试
 │   └── benchmark_mcp_memory.py  # MCP 内存基准测试
 ├── services/                # 服务管理
@@ -330,6 +374,14 @@ mcp:
     CODEMIND_CONFIG_PATH: "/abs/path/to/config.yml"
   call_timeout: 10                    # MCP 工具调用超时 (秒)
   startup_timeout: 15                 # MCP server 启动超时 (秒)
+
+e2b:
+  enabled: false                      # 是否启用 E2B 沙箱执行
+  api_key: "${E2B_API_KEY}"          # E2B API Key（支持环境变量展开）
+  template: "base"                    # E2B 沙箱模板
+  timeout: 30                         # 沙箱超时 (秒)
+  repo_sync_enabled: true             # 是否同步仓库到沙箱
+  workspace_root: "/workspace"        # 沙箱工作区根目录
 ```
 
 ## Agent 可用工具
@@ -338,13 +390,20 @@ mcp:
 根据用户问题从代码库中检索相关文档并进行总结提炼。这是获取代码库上下文的首选工具，**始终在本地执行**（不通过 MCP）。
 
 ### 2. ReadFile
-读取指定文件内容，支持按行号范围读取。最多支持读取256行，如需读取更多，请分批读取。**通过 MCP server 调用**。
+读取指定文件内容，支持按行号范围读取（start_line 和 end_line 为可选参数）。最多支持读取256行，如需读取更多，请分批读取。**通过 MCP server 调用**。
+
+- 沙箱执行：当 `e2b.enabled` 为 true 时，通过 E2B 沙箱执行，否则本地执行
 
 ### 3. SearchCode
 在代码库中搜索关键词或正则表达式。**通过 MCP server 调用**。
 
+- 沙箱执行：当 `e2b.enabled` 为 true 时，通过 E2B 沙箱执行，否则本地执行
+
 ### 4. RunCommand
 执行只读 shell 命令（如 ls, cat, grep, git 等）。**通过 MCP server 调用**。
+
+- 沙箱执行：当 `e2b.enabled` 为 true 时，通过 E2B 沙箱执行，否则本地执行
+- 轻量命令优化：ls, cat, grep, find, head, tail, wc 等只读命令即使在沙箱模式下也会优先在本地执行以避免仓库同步开销
 
 ### 5. IndexRepo
 索引整个代码仓库到向量数据库。**通过 MCP server 调用**。
@@ -353,6 +412,10 @@ mcp:
 增量追加指定文件或目录到索引。**通过 MCP server 调用**。
 
 ### 7. DeleteByFilePath
+从索引中删除指定文件或目录。**通过 MCP server 调用**。
+
+### 8. UpdateByGit
+根据 Git 提交、修订号、暂存区或工作区变更，自动删除旧索引并重建变更文件的新索引。**通过 MCP server 调用**。
 从索引中删除指定文件或目录。**通过 MCP server 调用**。
 
 ## 核心技术
